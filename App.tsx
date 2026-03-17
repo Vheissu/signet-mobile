@@ -1,7 +1,7 @@
 import { install } from 'react-native-quick-crypto';
 install();
 
-import React, { useEffect } from 'react';
+import React, { useEffect, useRef } from 'react';
 import { StatusBar } from 'expo-status-bar';
 import { View, StyleSheet, ActivityIndicator, Text } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
@@ -12,16 +12,38 @@ import { OfflineBanner } from './src/components/ui/OfflineBanner';
 import { useAutoLock } from './src/hooks/useAutoLock';
 import { useStore } from './src/store';
 import { colors } from './src/theme';
+import {
+  checkDeviceSecurity,
+  enableScreenProtection,
+  disableScreenProtection,
+} from './src/core/security';
 
 function AppContent() {
   const isLoading = useStore((s) => s.isLoading);
   const loadingMessage = useStore((s) => s.loadingMessage);
+  const isLocked = useStore((s) => s.isLocked);
   const initialize = useStore((s) => s.initialize);
   const { resetActivity } = useAutoLock();
+  const securityChecked = useRef(false);
 
   useEffect(() => {
     initialize();
+
+    // One-time jailbreak/root check on startup
+    if (!securityChecked.current) {
+      securityChecked.current = true;
+      checkDeviceSecurity();
+    }
   }, []);
+
+  // Prevent screenshots/screen recording while wallet is unlocked
+  useEffect(() => {
+    if (!isLocked) {
+      enableScreenProtection();
+    } else {
+      disableScreenProtection();
+    }
+  }, [isLocked]);
 
   if (isLoading) {
     return (

@@ -8,6 +8,7 @@ import {
   Alert,
   Dimensions,
 } from 'react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import Svg, { Polygon, Defs, RadialGradient, Stop } from 'react-native-svg';
 import { Fingerprint } from 'lucide-react-native';
 import { colors } from '../theme';
@@ -20,6 +21,8 @@ import {
   getBiometricType,
   authenticateWithBiometric,
 } from '../core/biometric';
+
+const LOCKOUT_STORAGE_KEY = 'signet_login_lockout';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 
@@ -70,9 +73,22 @@ export const LoginScreen: React.FC = () => {
   const [failedAttempts, setFailedAttempts] = useState(0);
   const [lockoutUntil, setLockoutUntil] = useState(0);
 
-  // Check biometric availability
+  // Load persisted lockout state and check biometrics on mount
   useEffect(() => {
-    const checkBiometrics = async () => {
+    const init = async () => {
+      // Restore persisted lockout state
+      try {
+        const raw = await AsyncStorage.getItem(LOCKOUT_STORAGE_KEY);
+        if (raw) {
+          const { attempts, until } = JSON.parse(raw);
+          setFailedAttempts(attempts ?? 0);
+          setLockoutUntil(until ?? 0);
+        }
+      } catch {
+        // No persisted state, start fresh
+      }
+
+      // Check biometric availability
       try {
         const available = await isBiometricAvailable();
         const enrolled = await isBiometricEnrolled();
@@ -88,7 +104,7 @@ export const LoginScreen: React.FC = () => {
       }
     };
 
-    checkBiometrics();
+    init();
   }, []);
 
   // Auto-trigger biometric on mount
@@ -117,13 +133,24 @@ export const LoginScreen: React.FC = () => {
     }
   }, [unlock]);
 
+  const persistLockout = useCallback(async (attempts: number, until: number) => {
+    try {
+      await AsyncStorage.setItem(
+        LOCKOUT_STORAGE_KEY,
+        JSON.stringify({ attempts, until }),
+      );
+    } catch {
+      // Best-effort persistence
+    }
+  }, []);
+
   const handlePasswordUnlock = async () => {
     if (!password.trim()) {
       setError('Please enter your password');
       return;
     }
 
-    // Brute force protection: exponential backoff
+    // Brute force protection: exponential backoff (persisted across restarts)
     const now = Date.now();
     if (now < lockoutUntil) {
       const secondsLeft = Math.ceil((lockoutUntil - now) / 1000);
@@ -136,7 +163,10 @@ export const LoginScreen: React.FC = () => {
 
     try {
       await unlock(password);
+      // Clear persisted lockout on success
       setFailedAttempts(0);
+      setLockoutUntil(0);
+      await AsyncStorage.removeItem(LOCKOUT_STORAGE_KEY);
       // Navigation auto-switches via the navigator when isLocked changes
     } catch (err: any) {
       const attempts = failedAttempts + 1;
@@ -145,9 +175,12 @@ export const LoginScreen: React.FC = () => {
       if (attempts >= MAX_ATTEMPTS) {
         const backoffMs = LOCKOUT_BASE_MS * Math.pow(2, attempts - MAX_ATTEMPTS);
         const capped = Math.min(backoffMs, 300_000); // max 5 minutes
-        setLockoutUntil(Date.now() + capped);
+        const until = Date.now() + capped;
+        setLockoutUntil(until);
+        await persistLockout(attempts, until);
         setError(`Too many failed attempts. Locked for ${Math.ceil(capped / 1000)}s`);
       } else {
+        await persistLockout(attempts, 0);
         setError(err?.message || 'Invalid password. Please try again.');
       }
     } finally {

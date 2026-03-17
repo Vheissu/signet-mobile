@@ -261,6 +261,11 @@ export const secureStorage = {
         await AsyncStorage.removeItem(key);
       }
 
+      // Clear contacts and notifications (stored outside STORAGE_KEYS)
+      await AsyncStorage.removeItem('signet_contacts');
+      await AsyncStorage.removeItem('signet_notifications');
+      await AsyncStorage.removeItem('signet_login_lockout');
+
       // Also clear any draft keys
       const keys = await AsyncStorage.getAllKeys();
       const draftKeys = keys.filter((k) => k.startsWith('signet_draft_'));

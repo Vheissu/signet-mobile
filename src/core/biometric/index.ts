@@ -127,11 +127,13 @@ export async function authenticateWithBiometric(): Promise<string | null> {
     if (!enrolled) return null;
 
     // Trigger the biometric prompt
+    // disableDeviceFallback: true prevents PIN/passcode fallback, which would
+    // bypass the wallet password with a weaker 4-6 digit code.
     const biometricType = await getBiometricType();
     const authResult = await LocalAuthentication.authenticateAsync({
       promptMessage: `Unlock Signet with ${biometricType}`,
       cancelLabel: 'Use Password',
-      disableDeviceFallback: false,
+      disableDeviceFallback: true,
     });
 
     if (!authResult.success) return null;
