@@ -66,5 +66,5 @@ export function validateMemo(memo: string): { valid: true } | { valid: false; er
  * Sanitize a username from user input (strip @, lowercase, trim).
  */
 export function sanitizeUsername(input: string): string {
-  return input.replace(/^@/, '').trim().toLowerCase();
+  return input.trim().replace(/^@/, '').trim().toLowerCase();
 }
