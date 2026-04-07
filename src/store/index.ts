@@ -26,6 +26,7 @@ import type {
   EncryptedPayload,
 } from '../core/types';
 import { DEFAULT_SETTINGS as defaultSettings } from '../core/types';
+import type { ProtocolLoginRequest } from '../core/protocol';
 
 // -------------------------------------------------------------------
 // Toast
@@ -68,6 +69,7 @@ export interface AppState {
 
   // UI
   toasts: Toast[];
+  protocolRequest: ProtocolLoginRequest | null;
 
   // ---------------------------------------------------------------
   // Actions
@@ -94,6 +96,8 @@ export interface AppState {
   addToast: (toast: Omit<Toast, 'id'>) => void;
   removeToast: (id: string) => void;
   setLoading: (loading: boolean, message?: string) => void;
+  setProtocolRequest: (request: ProtocolLoginRequest | null) => void;
+  clearProtocolRequest: () => void;
 }
 
 // -------------------------------------------------------------------
@@ -138,6 +142,7 @@ export const useStore = create<AppState>((set, get) => ({
   priceChange24h: 0,
   settings: { ...defaultSettings },
   toasts: [],
+  protocolRequest: null,
 
   // -----------------------------------------------------------------
   // initialize
@@ -585,6 +590,17 @@ export const useStore = create<AppState>((set, get) => ({
   // -----------------------------------------------------------------
   setLoading: (loading: boolean, message?: string) => {
     set({ isLoading: loading, loadingMessage: message || '' });
+  },
+
+  // -----------------------------------------------------------------
+  // Protocol Requests
+  // -----------------------------------------------------------------
+  setProtocolRequest: (request: ProtocolLoginRequest | null) => {
+    set({ protocolRequest: request });
+  },
+
+  clearProtocolRequest: () => {
+    set({ protocolRequest: null });
   },
 }));
 

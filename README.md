@@ -10,6 +10,7 @@ Signet Mobile is an Expo-based Hive wallet for iOS and Android. It focuses on se
 - Multi-account management
 - Import keys from manual entry or password-manager exports
 - Send and receive flows with QR code scanning and QR generation
+- Local protocol login flow for trusted Hive apps via `signet://login`
 - Hive wallet dashboard with balances, rewards, resource credits, and price data
 - Hive Engine token browsing and token detail screens
 - Governance, staking, savings, and delegation flows
@@ -148,6 +149,21 @@ The key import flow currently supports CSV-style exports from:
 - LastPass
 - Bitwarden
 - Custom CSV files
+
+## Local Protocol Login
+
+Signet exposes a custom URL scheme so another app can request a locally stored posting key for a Hive account:
+
+```text
+signet://login?username=<hive-user>&callback=<urlencoded-callback>&request_id=<optional-id>
+```
+
+Notes:
+
+- `callback`, `redirect_uri`, and `return_url` are accepted as callback parameter aliases
+- the user must explicitly approve every request inside Signet
+- Signet only returns a posting key for an account already stored on the device
+- callback responses include `status=success|error`, echo `request_id` when supplied, and return either `username` + `posting_key` or `error` + `message`
 
 ## Notes for Development
 

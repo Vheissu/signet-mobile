@@ -12,10 +12,10 @@ import {
   NavigationContainer,
   DefaultTheme,
   Theme,
+  createNavigationContainerRef,
 } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
-import { View, StyleSheet } from 'react-native';
 import {
   LayoutDashboard,
   Coins,
@@ -45,6 +45,7 @@ import EditAccountScreen from '../screens/EditAccountScreen';
 import ImportKeysScreen from '../screens/ImportKeysScreen';
 import ContactsScreen from '../screens/ContactsScreen';
 import TokenDetailScreen from '../screens/TokenDetailScreen';
+import ProtocolLoginScreen from '../screens/ProtocolLoginScreen';
 
 // -------------------------------------------------------------------
 // Param Lists
@@ -67,6 +68,7 @@ export type RootStackParamList = {
   ImportKeys: { username?: string } | undefined;
   Contacts: undefined;
   TokenDetail: { symbol: string; tokenData?: any };
+  ProtocolLogin: undefined;
 };
 
 export type MainTabParamList = {
@@ -168,11 +170,11 @@ function MainTabs() {
 // Root Stack Navigator
 // -------------------------------------------------------------------
 const Stack = createNativeStackNavigator<RootStackParamList>();
+export const navigationRef = createNavigationContainerRef<RootStackParamList>();
 
 function RootNavigator() {
   const isInitialized = useStore((s) => s.isInitialized);
   const isLocked = useStore((s) => s.isLocked);
-  const isLoading = useStore((s) => s.isLoading);
   const accounts = useStore((s) => s.accounts);
 
   // Determine which flow to show:
@@ -183,7 +185,6 @@ function RootNavigator() {
   const needsOnboarding = !isInitialized;
   const needsUnlock = isInitialized && isLocked;
   const needsAccount = isInitialized && !isLocked && accounts.length === 0;
-  const isReady = isInitialized && !isLocked && accounts.length > 0;
 
   return (
     <Stack.Navigator
@@ -244,6 +245,15 @@ function RootNavigator() {
           <Stack.Screen name="ImportKeys" component={ImportKeysScreen} />
           <Stack.Screen name="Contacts" component={ContactsScreen} />
           <Stack.Screen name="TokenDetail" component={TokenDetailScreen} />
+          <Stack.Screen
+            name="ProtocolLogin"
+            component={ProtocolLoginScreen}
+            options={{
+              presentation: 'modal',
+              animation: 'slide_from_bottom',
+              gestureEnabled: false,
+            }}
+          />
         </>
       )}
     </Stack.Navigator>
@@ -254,8 +264,35 @@ function RootNavigator() {
 // Navigation Container
 // -------------------------------------------------------------------
 export function Navigation() {
+  const isInitialized = useStore((s) => s.isInitialized);
+  const isLocked = useStore((s) => s.isLocked);
+  const accounts = useStore((s) => s.accounts);
+  const protocolRequest = useStore((s) => s.protocolRequest);
+  const [navReady, setNavReady] = React.useState(false);
+
+  React.useEffect(() => {
+    if (
+      !navReady
+      || !protocolRequest
+      || !isInitialized
+      || isLocked
+      || accounts.length === 0
+      || !navigationRef.isReady()
+    ) {
+      return;
+    }
+
+    if (navigationRef.getCurrentRoute()?.name !== 'ProtocolLogin') {
+      navigationRef.navigate('ProtocolLogin');
+    }
+  }, [accounts.length, isInitialized, isLocked, navReady, protocolRequest]);
+
   return (
-    <NavigationContainer theme={SignetTheme}>
+    <NavigationContainer
+      ref={navigationRef}
+      theme={SignetTheme}
+      onReady={() => setNavReady(true)}
+    >
       <RootNavigator />
     </NavigationContainer>
   );

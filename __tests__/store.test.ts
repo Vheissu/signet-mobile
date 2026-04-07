@@ -96,6 +96,7 @@ function resetStore() {
       coingeckoApiKey: '',
     },
     toasts: [],
+    protocolRequest: null,
   });
 }
 
