@@ -45,7 +45,7 @@ import EditAccountScreen from '../screens/EditAccountScreen';
 import ImportKeysScreen from '../screens/ImportKeysScreen';
 import ContactsScreen from '../screens/ContactsScreen';
 import TokenDetailScreen from '../screens/TokenDetailScreen';
-import ProtocolLoginScreen from '../screens/ProtocolLoginScreen';
+import ApproveRequestScreen from '../screens/ApproveRequestScreen';
 
 // -------------------------------------------------------------------
 // Param Lists
@@ -68,7 +68,7 @@ export type RootStackParamList = {
   ImportKeys: { username?: string } | undefined;
   Contacts: undefined;
   TokenDetail: { symbol: string; tokenData?: any };
-  ProtocolLogin: undefined;
+  ApproveRequest: undefined;
 };
 
 export type MainTabParamList = {
@@ -246,8 +246,8 @@ function RootNavigator() {
           <Stack.Screen name="Contacts" component={ContactsScreen} />
           <Stack.Screen name="TokenDetail" component={TokenDetailScreen} />
           <Stack.Screen
-            name="ProtocolLogin"
-            component={ProtocolLoginScreen}
+            name="ApproveRequest"
+            component={ApproveRequestScreen}
             options={{
               presentation: 'modal',
               animation: 'slide_from_bottom',
@@ -267,13 +267,15 @@ export function Navigation() {
   const isInitialized = useStore((s) => s.isInitialized);
   const isLocked = useStore((s) => s.isLocked);
   const accounts = useStore((s) => s.accounts);
-  const protocolRequest = useStore((s) => s.protocolRequest);
+  const hasPending = useStore((s) => s.pendingRequests.length > 0);
   const [navReady, setNavReady] = React.useState(false);
 
+  // Surface the approval screen whenever something is waiting and the
+  // wallet can act on it. When locked, the request waits for the unlock.
   React.useEffect(() => {
     if (
       !navReady
-      || !protocolRequest
+      || !hasPending
       || !isInitialized
       || isLocked
       || accounts.length === 0
@@ -282,10 +284,10 @@ export function Navigation() {
       return;
     }
 
-    if (navigationRef.getCurrentRoute()?.name !== 'ProtocolLogin') {
-      navigationRef.navigate('ProtocolLogin');
+    if (navigationRef.getCurrentRoute()?.name !== 'ApproveRequest') {
+      navigationRef.navigate('ApproveRequest');
     }
-  }, [accounts.length, isInitialized, isLocked, navReady, protocolRequest]);
+  }, [accounts.length, isInitialized, isLocked, navReady, hasPending]);
 
   return (
     <NavigationContainer

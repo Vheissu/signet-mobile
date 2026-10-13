@@ -143,3 +143,52 @@ export interface ProposalInfo {
   daily_pay: string;
   voted: boolean;
 }
+
+// ---------------------------------------------------------------------------
+// dApp / deep-link requests
+// ---------------------------------------------------------------------------
+
+export type DAppRequestType =
+  | 'SIGN_TRANSACTION'
+  | 'SIGN_BUFFER'
+  | 'BROADCAST'
+  | 'TRANSFER'
+  | 'VOTE'
+  | 'POST'
+  | 'CUSTOM_JSON'
+  | 'DELEGATE'
+  | 'POWER_UP'
+  | 'POWER_DOWN'
+  | 'DECODE_MEMO'
+  | 'ENCODE_MEMO'
+  | 'ADD_ACCOUNT_AUTHORITY'
+  | 'REMOVE_ACCOUNT_AUTHORITY'
+  | 'WITNESS_VOTE'
+  | 'PROXY'
+  | 'UPDATE_PROPOSAL_VOTE'
+  | 'CONVERT'
+  | 'RECURRENT_TRANSFER'
+  | 'SEND_TOKEN'
+  | 'SIGNED_CALL';
+
+/** A signing/broadcast request from a dApp (in-app browser) or a deep link. */
+export interface DAppRequest {
+  id: string;
+  type: DAppRequestType;
+  payload: any;
+  /** Where the request came from: a web origin or a deep-link label. */
+  origin: string;
+  timestamp: number;
+}
+
+/** Hive Keychain compatible response shape. */
+export interface DAppResponse {
+  success: boolean;
+  error: string | null;
+  result: any;
+  data: any;
+  message: string;
+  request_id: string;
+  publicKey?: string;
+  username?: string;
+}

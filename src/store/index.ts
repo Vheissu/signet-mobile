@@ -27,7 +27,22 @@ import type {
   EncryptedPayload,
 } from '../core/types';
 import { DEFAULT_SETTINGS as defaultSettings } from '../core/types';
-import type { ProtocolLoginRequest } from '../core/protocol';
+import type { DAppRequest, DAppResponse } from '../core/types';
+import type { ProtocolRequest } from '../core/protocol';
+
+// -------------------------------------------------------------------
+// Pending approvals (in-app browser and deep links)
+// -------------------------------------------------------------------
+export type ApprovalOrigin =
+  | { kind: 'deeplink'; protocol: ProtocolRequest }
+  | { kind: 'browser'; url: string; host: string };
+
+export interface PendingApproval {
+  request: DAppRequest;
+  origin: ApprovalOrigin;
+  /** Deliver the answer to whoever asked (callback URL or web page). */
+  respond: (response: DAppResponse) => void | Promise<void>;
+}
 
 // -------------------------------------------------------------------
 // Toast
@@ -70,7 +85,8 @@ export interface AppState {
 
   // UI
   toasts: Toast[];
-  protocolRequest: ProtocolLoginRequest | null;
+  /** Requests waiting for the user's approval, oldest first. */
+  pendingRequests: PendingApproval[];
 
   // ---------------------------------------------------------------
   // Actions
@@ -97,8 +113,9 @@ export interface AppState {
   addToast: (toast: Omit<Toast, 'id'>) => void;
   removeToast: (id: string) => void;
   setLoading: (loading: boolean, message?: string) => void;
-  setProtocolRequest: (request: ProtocolLoginRequest | null) => void;
-  clearProtocolRequest: () => void;
+  enqueueRequest: (approval: PendingApproval) => void;
+  resolveRequest: (id: string, response: DAppResponse) => Promise<void>;
+  rejectAllRequests: (reason?: string) => Promise<void>;
 }
 
 // -------------------------------------------------------------------
@@ -143,7 +160,7 @@ export const useStore = create<AppState>((set, get) => ({
   priceChange24h: 0,
   settings: { ...defaultSettings },
   toasts: [],
-  protocolRequest: null,
+  pendingRequests: [],
 
   // -----------------------------------------------------------------
   // initialize
@@ -271,6 +288,26 @@ export const useStore = create<AppState>((set, get) => ({
   // lock
   // -----------------------------------------------------------------
   lock: () => {
+    // Anything waiting for approval is rejected; the requester must retry
+    // once the wallet is unlocked. The queue is cleared synchronously so
+    // the approval screen closes with the rest of the UI.
+    const pending = get().pendingRequests;
+    if (pending.length > 0) {
+      set({ pendingRequests: [] });
+      for (const approval of pending) {
+        Promise.resolve(
+          approval.respond({
+            success: false,
+            error: 'locked',
+            result: null,
+            data: { type: approval.request.type, ...approval.request.payload },
+            message: 'The wallet was locked before the request was approved',
+            request_id: approval.request.id,
+          }),
+        ).catch((e) => logger.warn('[store] failed to deliver rejection:', e));
+      }
+    }
+
     // Clear session and form drafts in the background
     Promise.all([
       removeSecureItem(STORAGE_KEYS.SESSION),
@@ -560,14 +597,42 @@ export const useStore = create<AppState>((set, get) => ({
   },
 
   // -----------------------------------------------------------------
-  // Protocol Requests
+  // Pending approvals
   // -----------------------------------------------------------------
-  setProtocolRequest: (request: ProtocolLoginRequest | null) => {
-    set({ protocolRequest: request });
+  enqueueRequest: (approval: PendingApproval) => {
+    set((state) => ({ pendingRequests: [...state.pendingRequests, approval] }));
   },
 
-  clearProtocolRequest: () => {
-    set({ protocolRequest: null });
+  resolveRequest: async (id: string, response: DAppResponse) => {
+    const approval = get().pendingRequests.find((a) => a.request.id === id);
+    set((state) => ({
+      pendingRequests: state.pendingRequests.filter((a) => a.request.id !== id),
+    }));
+    if (!approval) return;
+    try {
+      await approval.respond(response);
+    } catch (e) {
+      logger.warn('[store] failed to deliver request response:', e);
+    }
+  },
+
+  rejectAllRequests: async (reason = 'User rejected the request') => {
+    const pending = get().pendingRequests;
+    set({ pendingRequests: [] });
+    for (const approval of pending) {
+      try {
+        await approval.respond({
+          success: false,
+          error: 'user_cancel',
+          result: null,
+          data: { type: approval.request.type, ...approval.request.payload },
+          message: reason,
+          request_id: approval.request.id,
+        });
+      } catch (e) {
+        logger.warn('[store] failed to deliver rejection:', e);
+      }
+    }
   },
 }));
 

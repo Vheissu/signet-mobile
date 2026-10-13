@@ -19,15 +19,18 @@ import {
 } from './src/core/security';
 import {
   buildProtocolCallbackUrl,
+  callbackPayloadFromResponse,
   parseProtocolRequest,
+  type ProtocolRequest,
 } from './src/core/protocol';
+import type { DAppResponse } from './src/core/types';
 
 function AppContent() {
   const isLoading = useStore((s) => s.isLoading);
   const loadingMessage = useStore((s) => s.loadingMessage);
   const isLocked = useStore((s) => s.isLocked);
   const initialize = useStore((s) => s.initialize);
-  const setProtocolRequest = useStore((s) => s.setProtocolRequest);
+  const enqueueRequest = useStore((s) => s.enqueueRequest);
   const addToast = useStore((s) => s.addToast);
   const { resetActivity } = useAutoLock();
   const securityChecked = useRef(false);
@@ -56,29 +59,30 @@ function AppContent() {
     }
   }, [isLocked]);
 
-  const respondWithProtocolError = useCallback(
-    async (
-      callback: string,
-      requestId: string | undefined,
-      error: string,
-      message: string,
-      username?: string,
-    ) => {
-      const callbackUrl = buildProtocolCallbackUrl(callback, {
-        status: 'error',
-        error,
-        message,
-        request_id: requestId,
-        username,
-      });
-
-      try {
-        await Linking.openURL(callbackUrl);
-      } catch {
+  /**
+   * Answer a deep link. Opens the callback when there is one, otherwise
+   * tells the user what happened.
+   */
+  const respondToProtocol = useCallback(
+    async (protocol: ProtocolRequest, response: DAppResponse) => {
+      if (!protocol.callback) {
         addToast({
-          type: 'error',
-          message,
+          type: response.success ? 'success' : 'error',
+          message: response.success
+            ? `Signed for ${protocol.label}`
+            : response.message || 'The request was not completed',
         });
+        return;
+      }
+
+      const url = buildProtocolCallbackUrl(
+        protocol.callback,
+        callbackPayloadFromResponse(protocol, response),
+      );
+      try {
+        await Linking.openURL(url);
+      } catch {
+        addToast({ type: 'error', message: `Unable to return to ${protocol.label}.` });
       }
     },
     [addToast],
@@ -86,48 +90,35 @@ function AppContent() {
 
   const handleProtocolUrl = useCallback(
     async (incomingUrl: string) => {
-      const request = parseProtocolRequest(incomingUrl);
-      if (!request) {
+      const protocol = parseProtocolRequest(incomingUrl);
+      if (!protocol) {
         return;
       }
 
       const state = useStore.getState();
-      const requestedAccount = state.accounts.find(
-        (account) => account.username === request.username,
-      );
-
       if (!state.isInitialized) {
-        await respondWithProtocolError(
-          request.callback,
-          request.requestId,
-          'wallet_unavailable',
-          'Signet is not set up on this device.',
-          request.username,
-        );
+        await respondToProtocol(protocol, {
+          success: false,
+          error: 'not_initialized',
+          result: null,
+          data: null,
+          message: 'Signet is not set up on this device.',
+          request_id: protocol.request.id,
+        });
         return;
       }
 
-      if (!requestedAccount && !state.isLocked) {
-        await respondWithProtocolError(
-          request.callback,
-          request.requestId,
-          'account_not_found',
-          `@${request.username} is not available in Signet.`,
-          request.username,
-        );
-        return;
-      }
-
-      setProtocolRequest(request);
-
-      addToast({
-        type: 'info',
-        message: state.isLocked
-          ? 'Unlock Signet to review the external login request.'
-          : 'Review the external login request in Signet.',
+      enqueueRequest({
+        request: protocol.request,
+        origin: { kind: 'deeplink', protocol },
+        respond: (response) => respondToProtocol(protocol, response),
       });
+
+      if (state.isLocked) {
+        addToast({ type: 'info', message: `Unlock Signet to review the request from ${protocol.label}.` });
+      }
     },
-    [addToast, respondWithProtocolError, setProtocolRequest],
+    [addToast, enqueueRequest, respondToProtocol],
   );
 
   const queueIncomingUrl = useCallback((incomingUrl: string) => {

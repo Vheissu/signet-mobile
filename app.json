@@ -2,7 +2,7 @@
   "expo": {
     "name": "Signet",
     "slug": "signet-mobile",
-    "scheme": "signet",
+    "scheme": ["signet", "hive"],
     "version": "0.1.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",

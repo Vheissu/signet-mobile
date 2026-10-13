@@ -5,7 +5,17 @@
  * The dhive client works in React Native without modification.
  */
 
-import { Client, ExtendedAccount, DynamicGlobalProperties, PrivateKey } from '@hiveio/dhive';
+import {
+  Client,
+  ExtendedAccount,
+  DynamicGlobalProperties,
+  PrivateKey,
+  type Operation,
+  type Transaction,
+  type SignedTransaction,
+  type TransactionConfirmation,
+} from '@hiveio/dhive';
+import { Buffer } from '@craftzdog/react-native-buffer';
 import type { DelegationInfo, TransactionRecord } from '../types';
 import { logger } from '../logger';
 
@@ -509,4 +519,152 @@ export async function broadcastCollateralizedConvert(
     [['collateralized_convert', { owner, requestid: requestId, amount }]],
     key
   );
+}
+
+// --- Generic signing / broadcast (used by the dApp bridge and deep links) ---
+
+export async function broadcastOperations(
+  operations: Operation[],
+  wif: string
+): Promise<TransactionConfirmation> {
+  const key = PrivateKey.fromString(wif);
+  return getClient().broadcast.sendOperations(operations, key);
+}
+
+/**
+ * Sign a transaction without broadcasting it. Missing reference block and
+ * expiration fields are filled from the current head block.
+ */
+export async function signTransaction(tx: Partial<Transaction>, wif: string): Promise<SignedTransaction> {
+  const key = PrivateKey.fromString(wif);
+  let full: Transaction;
+
+  if (
+    typeof tx.ref_block_num === 'number' &&
+    typeof tx.ref_block_prefix === 'number' &&
+    typeof tx.expiration === 'string'
+  ) {
+    full = {
+      ref_block_num: tx.ref_block_num,
+      ref_block_prefix: tx.ref_block_prefix,
+      expiration: tx.expiration,
+      operations: tx.operations || [],
+      extensions: tx.extensions || [],
+    };
+  } else {
+    const props = await getDynamicGlobalProperties();
+    const refBlockNum = props.head_block_number & 0xffff;
+    const refBlockPrefix = Buffer.from(props.head_block_id, 'hex').readUInt32LE(4);
+    const expiration = new Date(new Date(props.time + 'Z').getTime() + 60_000)
+      .toISOString()
+      .slice(0, -5);
+    full = {
+      ref_block_num: refBlockNum,
+      ref_block_prefix: refBlockPrefix,
+      expiration,
+      operations: tx.operations || [],
+      extensions: tx.extensions || [],
+    };
+  }
+
+  const signed = getClient().broadcast.sign(full, key);
+  // Preserve any signatures the caller already collected (multi-sig).
+  if (Array.isArray((tx as any).signatures) && (tx as any).signatures.length > 0) {
+    signed.signatures = [...(tx as any).signatures, ...signed.signatures];
+  }
+  return signed;
+}
+
+export async function broadcastSignedTransaction(tx: SignedTransaction): Promise<TransactionConfirmation> {
+  return getClient().broadcast.send(tx);
+}
+
+export async function broadcastComment(
+  params: {
+    author: string;
+    permlink: string;
+    title: string;
+    body: string;
+    parent_author: string;
+    parent_permlink: string;
+    json_metadata: string;
+  },
+  commentOptions: any | null,
+  postingKey: string
+): Promise<TransactionConfirmation> {
+  const ops: Operation[] = [['comment', params]];
+  if (commentOptions) {
+    const opts = typeof commentOptions === 'string' ? JSON.parse(commentOptions) : commentOptions;
+    ops.push([
+      'comment_options',
+      {
+        author: params.author,
+        permlink: params.permlink,
+        max_accepted_payout: opts.max_accepted_payout ?? '1000000.000 HBD',
+        percent_hbd: opts.percent_hbd ?? opts.percent_steem_dollars ?? 10000,
+        allow_votes: opts.allow_votes ?? true,
+        allow_curation_rewards: opts.allow_curation_rewards ?? true,
+        extensions: opts.extensions ?? [],
+      },
+    ]);
+  }
+  return broadcastOperations(ops, postingKey);
+}
+
+export async function broadcastRecurrentTransfer(
+  from: string,
+  to: string,
+  amount: string,
+  memo: string,
+  recurrence: number,
+  executions: number,
+  activeKey: string
+): Promise<TransactionConfirmation> {
+  return broadcastOperations(
+    [['recurrent_transfer', { from, to, amount, memo, recurrence, executions, extensions: [] }] as any],
+    activeKey
+  );
+}
+
+/**
+ * Add (weight given) or remove (weight null) another account from the
+ * posting or active authority of `username`.
+ */
+export async function broadcastAccountAuthorityChange(
+  username: string,
+  authorizedUsername: string,
+  role: 'posting' | 'active',
+  weight: number | null,
+  activeKey: string
+): Promise<TransactionConfirmation> {
+  const account = await getAccount(username);
+  if (!account) throw new Error(`Account @${username} not found`);
+
+  const authority = JSON.parse(JSON.stringify(account[role])) as {
+    weight_threshold: number;
+    account_auths: [string, number][];
+    key_auths: [string, number][];
+  };
+
+  const filtered = authority.account_auths.filter(([name]) => name !== authorizedUsername);
+  if (weight === null) {
+    if (filtered.length === authority.account_auths.length) {
+      throw new Error(`@${authorizedUsername} does not have ${role} authority`);
+    }
+  } else {
+    filtered.push([authorizedUsername, weight]);
+  }
+  filtered.sort((a, b) => (a[0] < b[0] ? -1 : a[0] > b[0] ? 1 : 0));
+  authority.account_auths = filtered;
+
+  const op: Operation = [
+    'account_update',
+    {
+      account: username,
+      [role]: authority,
+      memo_key: account.memo_key,
+      json_metadata: account.json_metadata,
+    } as any,
+  ];
+  return broadcastOperations([op], activeKey);
 }
