@@ -27,7 +27,11 @@ import { Badge } from '../components/ui/Badge';
 import { Spinner } from '../components/ui/Spinner';
 import { Avatar } from '../components/ui/Avatar';
 import { useStore } from '../store';
-import { getAccountHistory } from '../core/hive/client';
+import { getAccountHistoryPage } from '../core/hive/client';
+import { decodeMemo, isEncryptedMemo } from '../core/crypto/hive-keys';
+import { useAccounts } from '../hooks/useAccounts';
+import { Button } from '../components/ui/Button';
+import { Lock } from 'lucide-react-native';
 import { vestsToHP, parseAmount } from '../core/hive/operations';
 import type { TransactionRecord } from '../core/types';
 import { logger } from '../core/logger';
@@ -133,11 +137,49 @@ const getTransactionMeta = (tx: TransactionRecord, currentUsername: string) => {
       };
     case 'fill_convert_request':
     case 'fill_order':
+    case 'convert':
+    case 'collateralized_convert':
       return {
         icon: Repeat,
         color: colors.textSecondary,
-        label: tx.type === 'fill_convert_request' ? 'Conversion' : 'Order Filled',
+        label:
+          tx.type === 'fill_convert_request'
+            ? 'Conversion Complete'
+            : tx.type === 'fill_order'
+            ? 'Order Filled'
+            : tx.type === 'convert'
+            ? 'Convert HBD'
+            : 'Convert HIVE',
         filter: 'tokens' as FilterType,
+      };
+    case 'interest':
+      return {
+        icon: Landmark,
+        color: colors.success,
+        label: 'Savings Interest',
+        filter: 'savings' as FilterType,
+      };
+    case 'fill_transfer_from_savings':
+      return {
+        icon: Landmark,
+        color: colors.success,
+        label: 'Savings Withdrawal',
+        filter: 'savings' as FilterType,
+      };
+    case 'fill_vesting_withdraw':
+      return {
+        icon: Zap,
+        color: colors.info,
+        label: 'Power Down Payment',
+        filter: 'power' as FilterType,
+      };
+    case 'recurrent_transfer':
+    case 'fill_recurrent_transfer':
+      return {
+        icon: isSent ? ArrowUpRight : ArrowDownLeft,
+        color: isSent ? colors.error : colors.success,
+        label: tx.type === 'recurrent_transfer' ? 'Recurring Transfer Set' : isSent ? 'Recurring Sent' : 'Recurring Received',
+        filter: 'transfers' as FilterType,
       };
     default:
       return {
@@ -215,7 +257,10 @@ const REWARD_TYPES = new Set([
   'author_reward',
   'producer_reward',
   'claim_reward_balance',
+  'interest',
 ]);
+
+const PAGE_SIZE = 300;
 
 /**
  * Format an amount string, converting any VESTS components to HP.
@@ -248,7 +293,9 @@ const TransactionItem: React.FC<{
   item: TransactionRecord;
   currentUsername: string;
   globalProperties: any;
-}> = ({ item, currentUsername, globalProperties }) => {
+  decryptedMemo?: string;
+  onDecryptMemo?: (tx: TransactionRecord) => void;
+}> = ({ item, currentUsername, globalProperties, decryptedMemo, onDecryptMemo }) => {
   const meta = getTransactionMeta(item, currentUsername);
   const Icon = meta.icon;
   const isReward = REWARD_TYPES.has(item.type);
@@ -256,14 +303,16 @@ const TransactionItem: React.FC<{
   const otherParty = isSent ? item.to : item.from;
 
   const displayAmount = item.amount ? formatDisplayAmount(item.amount, globalProperties) : '';
+  const encrypted = isEncryptedMemo(item.memo) && !decryptedMemo;
+  const memoText = decryptedMemo || item.memo || '';
 
   // Only show memos that look like human-written text (not hashes, permlinks, or UUIDs)
-  const showMemo = item.memo
-    && item.memo.length > 0
-    && !item.memo.match(/^[a-f0-9-]{20,}/i)
-    && !item.memo.match(/^re-[a-z]/)
-    && !item.memo.match(/^[a-z0-9-]+$/)
-    && item.memo.includes(' ');
+  const showMemo = !encrypted
+    && memoText.length > 0
+    && !memoText.match(/^[a-f0-9-]{20,}/i)
+    && !memoText.match(/^re-[a-z]/)
+    && !memoText.match(/^[a-z0-9-]+$/)
+    && memoText.includes(' ');
 
   return (
     <View style={styles.txItem}>
@@ -305,8 +354,14 @@ const TransactionItem: React.FC<{
         </View>
         {showMemo ? (
           <Text style={styles.txMemo} numberOfLines={1}>
-            {item.memo}
+            {memoText}
           </Text>
+        ) : null}
+        {encrypted ? (
+          <TouchableOpacity style={styles.memoLock} onPress={() => onDecryptMemo?.(item)} activeOpacity={0.7}>
+            <Lock size={11} color={colors.textTertiary} />
+            <Text style={styles.memoLockText}>Encrypted memo, tap to read</Text>
+          </TouchableOpacity>
         ) : null}
       </View>
     </View>
@@ -338,11 +393,16 @@ export const HistoryScreen: React.FC = () => {
   const activeAccountName = useStore((s) => s.activeAccountName);
   const globalProperties = useStore((s) => s.globalProperties);
   const addToast = useStore((s) => s.addToast);
+  const { getDecryptedKey } = useAccounts();
 
   const [activeFilter, setActiveFilter] = useState<FilterType>('all');
   const [refreshing, setRefreshing] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [loadingMore, setLoadingMore] = useState(false);
   const [transactions, setTransactions] = useState<TransactionRecord[]>([]);
+  const [oldestIndex, setOldestIndex] = useState(0);
+  const [hasMore, setHasMore] = useState(false);
+  const [decryptedMemos, setDecryptedMemos] = useState<Record<string, string>>({});
 
   const currentUsername = activeAccountName || '';
 
@@ -354,8 +414,11 @@ export const HistoryScreen: React.FC = () => {
     }
 
     try {
-      const history = await getAccountHistory(activeAccountName, -1, 500);
-      setTransactions(history);
+      const page = await getAccountHistoryPage(activeAccountName, -1, PAGE_SIZE);
+      setTransactions(page.records);
+      setOldestIndex(page.oldestIndex);
+      setHasMore(page.hasMore);
+      setDecryptedMemos({});
     } catch (err: any) {
       logger.error('[HistoryScreen] Failed to fetch transactions:', err);
       addToast({
@@ -366,6 +429,40 @@ export const HistoryScreen: React.FC = () => {
       setLoading(false);
     }
   }, [activeAccountName, addToast]);
+
+  const loadMore = useCallback(async () => {
+    if (!activeAccountName || !hasMore || loadingMore || oldestIndex <= 0) return;
+    setLoadingMore(true);
+    try {
+      const page = await getAccountHistoryPage(activeAccountName, oldestIndex - 1, PAGE_SIZE);
+      setTransactions((prev) => [...prev, ...page.records]);
+      setOldestIndex(page.oldestIndex);
+      setHasMore(page.hasMore);
+    } catch (err) {
+      logger.error('[HistoryScreen] Failed to load older history:', err);
+      addToast({ type: 'error', message: 'Failed to load older activity' });
+    } finally {
+      setLoadingMore(false);
+    }
+  }, [activeAccountName, hasMore, loadingMore, oldestIndex, addToast]);
+
+  const decryptMemo = useCallback(
+    async (tx: TransactionRecord) => {
+      if (!tx.memo) return;
+      const key = await getDecryptedKey('memo');
+      if (!key) {
+        addToast({ type: 'info', message: 'Add your memo key in Settings to read encrypted memos.' });
+        return;
+      }
+      try {
+        const text = decodeMemo(tx.memo, key);
+        setDecryptedMemos((prev) => ({ ...prev, [`${tx.id}_${tx.block}`]: text }));
+      } catch {
+        addToast({ type: 'error', message: 'This memo was not encrypted for your memo key.' });
+      }
+    },
+    [getDecryptedKey, addToast],
+  );
 
   // Fetch on mount and when active account changes
   useEffect(() => {
@@ -390,9 +487,15 @@ export const HistoryScreen: React.FC = () => {
 
   const renderItem = useCallback(
     ({ item }: { item: TransactionRecord }) => (
-      <TransactionItem item={item} currentUsername={currentUsername} globalProperties={globalProperties} />
+      <TransactionItem
+        item={item}
+        currentUsername={currentUsername}
+        globalProperties={globalProperties}
+        decryptedMemo={decryptedMemos[`${item.id}_${item.block}`]}
+        onDecryptMemo={decryptMemo}
+      />
     ),
-    [currentUsername, globalProperties],
+    [currentUsername, globalProperties, decryptedMemos, decryptMemo],
   );
 
   const keyExtractor = useCallback(
@@ -433,6 +536,15 @@ export const HistoryScreen: React.FC = () => {
           contentContainerStyle={styles.listContent}
           ItemSeparatorComponent={() => <View style={styles.separator} />}
           ListEmptyComponent={EmptyState}
+          ListFooterComponent={
+            hasMore ? (
+              <View style={styles.loadMore}>
+                <Button variant="secondary" size="md" fullWidth loading={loadingMore} onPress={loadMore}>
+                  Load older activity
+                </Button>
+              </View>
+            ) : null
+          }
           showsVerticalScrollIndicator={false}
           refreshControl={
             <RefreshControl
@@ -582,6 +694,20 @@ const styles = StyleSheet.create({
     color: colors.textTertiary,
     marginTop: 4,
     fontStyle: 'italic',
+  },
+  memoLock: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    marginTop: 4,
+  },
+  memoLockText: {
+    fontSize: 11,
+    color: colors.textTertiary,
+  },
+  loadMore: {
+    paddingTop: 12,
+    paddingBottom: 8,
   },
 
   // Empty state

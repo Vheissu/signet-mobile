@@ -14,7 +14,7 @@ import {
   secureStorage,
   STORE_KEYS as STORAGE_KEYS,
 } from '../core/storage/secure-storage';
-import { getAccount, getDynamicGlobalProperties, getResourceCredits } from '../core/hive/client';
+import { getAccount, getDynamicGlobalProperties, getResourceCredits, setNodes } from '../core/hive/client';
 import { logger } from '../core/logger';
 import { removeBiometric } from '../core/biometric';
 import { toast as toastUI } from '../components/ui/Toast';
@@ -123,6 +123,12 @@ export interface AppState {
 // -------------------------------------------------------------------
 let toastCounter = 0;
 
+/** Point the Hive client at the configured nodes, active one first. */
+function applyRpcSettings(settings: Settings): void {
+  const others = settings.rpcNodes.filter((n) => n !== settings.activeRpc);
+  setNodes([settings.activeRpc, ...others]);
+}
+
 function generateToastId(): string {
   toastCounter += 1;
   return `toast_${Date.now()}_${toastCounter}`;
@@ -177,6 +183,7 @@ export const useStore = create<AppState>((set, get) => ({
           const merged = { ...defaultSettings, ...parsed };
           set({ settings: merged });
           setCoingeckoApiKey(merged.coingeckoApiKey || null);
+          applyRpcSettings(merged);
         } catch {
           // corrupted settings, use defaults
         }
@@ -569,6 +576,9 @@ export const useStore = create<AppState>((set, get) => ({
     set({ settings: updated });
     if ('coingeckoApiKey' in partial) {
       setCoingeckoApiKey(updated.coingeckoApiKey || null);
+    }
+    if ('activeRpc' in partial || 'rpcNodes' in partial) {
+      applyRpcSettings(updated);
     }
     await setSecureItem(STORAGE_KEYS.SETTINGS, JSON.stringify(updated));
   },

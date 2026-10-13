@@ -29,7 +29,11 @@ import {
   listProposalVotes,
   broadcastWitnessVote,
   broadcastProposalVote,
+  broadcastSetProxy,
+  getAccount,
 } from '../core/hive/client';
+import { Input } from '../components/ui/Input';
+import { isValidHiveUsername, sanitizeUsername } from '../core/validation';
 import { Card } from '../components/ui/Card';
 import { Button } from '../components/ui/Button';
 import { Badge } from '../components/ui/Badge';
@@ -43,8 +47,12 @@ const GovernanceScreen: React.FC = () => {
   const addToast = useStore((s) => s.addToast);
   const activeAccountData = useStore((s) => s.activeAccountData);
   const { getDecryptedKey, activeAccountName } = useAccounts();
+  const refreshAccountData = useStore((s) => s.refreshAccountData);
 
   const [activeTab, setActiveTab] = useState<GovernanceTab>('witnesses');
+  const currentProxy: string = activeAccountData?.proxy || '';
+  const [proxyInput, setProxyInput] = useState('');
+  const [proxyWorking, setProxyWorking] = useState(false);
   const [witnesses, setWitnesses] = useState<WitnessInfo[]>([]);
   const [proposals, setProposals] = useState<ProposalInfo[]>([]);
   const [votingId, setVotingId] = useState<string | null>(null);
@@ -125,14 +133,15 @@ const GovernanceScreen: React.FC = () => {
 
       setVotingId(witness.owner);
       try {
-        const postingKey = await getDecryptedKey('posting');
-        if (!postingKey) {
-          Alert.alert('Error', 'Posting key is required to vote for witnesses. Please import your posting key.');
+        // Witness votes are an active-authority operation on Hive.
+        const activeKey = await getDecryptedKey('active');
+        if (!activeKey) {
+          Alert.alert('Active key needed', 'Witness votes are signed with your active key. Add it in Settings to vote.');
           return;
         }
 
         const approve = !witness.voted;
-        await broadcastWitnessVote(activeAccountName, witness.owner, approve, postingKey);
+        await broadcastWitnessVote(activeAccountName, witness.owner, approve, activeKey);
 
         addToast({
           type: 'success',
@@ -142,6 +151,7 @@ const GovernanceScreen: React.FC = () => {
         });
 
         // Reload witnesses to reflect updated state
+        await refreshAccountData();
         await fetchWitnesses();
       } catch (e: any) {
         const msg = e.message || 'Vote failed';
@@ -151,7 +161,7 @@ const GovernanceScreen: React.FC = () => {
         setVotingId(null);
       }
     },
-    [activeAccountName, getDecryptedKey, addToast, fetchWitnesses],
+    [activeAccountName, getDecryptedKey, addToast, fetchWitnesses, refreshAccountData],
   );
 
   const handleProposalVote = useCallback(
@@ -163,14 +173,15 @@ const GovernanceScreen: React.FC = () => {
 
       setVotingId(`proposal-${proposal.id}`);
       try {
-        const postingKey = await getDecryptedKey('posting');
-        if (!postingKey) {
-          Alert.alert('Error', 'Posting key is required to vote on proposals. Please import your posting key.');
+        // Proposal votes are an active-authority operation on Hive.
+        const activeKey = await getDecryptedKey('active');
+        if (!activeKey) {
+          Alert.alert('Active key needed', 'Proposal votes are signed with your active key. Add it in Settings to vote.');
           return;
         }
 
         const approve = !proposal.voted;
-        await broadcastProposalVote(activeAccountName, [proposal.id], approve, postingKey);
+        await broadcastProposalVote(activeAccountName, [proposal.id], approve, activeKey);
 
         addToast({
           type: 'success',
@@ -190,6 +201,45 @@ const GovernanceScreen: React.FC = () => {
       }
     },
     [activeAccountName, getDecryptedKey, addToast, fetchProposals],
+  );
+
+  const handleSetProxy = useCallback(
+    async (proxy: string) => {
+      if (!activeAccountName) return;
+      const clean = sanitizeUsername(proxy);
+      if (clean && !isValidHiveUsername(clean)) {
+        Alert.alert('Invalid account', 'Enter a valid Hive username.');
+        return;
+      }
+      setProxyWorking(true);
+      try {
+        const activeKey = await getDecryptedKey('active');
+        if (!activeKey) {
+          Alert.alert('Active key needed', 'Changing your voting proxy is signed with your active key.');
+          return;
+        }
+        if (clean) {
+          const exists = await getAccount(clean);
+          if (!exists) {
+            Alert.alert('Not found', `@${clean} does not exist on Hive.`);
+            return;
+          }
+        }
+        await broadcastSetProxy(activeAccountName, clean, activeKey);
+        addToast({
+          type: 'success',
+          message: clean ? `@${clean} now votes on your behalf` : 'Voting proxy removed',
+        });
+        setProxyInput('');
+        await refreshAccountData();
+        await fetchWitnesses();
+      } catch (e: any) {
+        addToast({ type: 'error', message: e.message || 'Failed to update proxy' });
+      } finally {
+        setProxyWorking(false);
+      }
+    },
+    [activeAccountName, getDecryptedKey, addToast, refreshAccountData, fetchWitnesses],
   );
 
   const formatVotes = (votes: string | number) => {
@@ -231,6 +281,7 @@ const GovernanceScreen: React.FC = () => {
             variant={item.voted ? 'danger' : 'primary'}
             size="sm"
             loading={votingId === item.owner}
+            disabled={!!currentProxy}
             onPress={() => handleWitnessVote(item)}
             icon={
               item.voted ? (
@@ -382,13 +433,56 @@ const GovernanceScreen: React.FC = () => {
         </View>
       </View>
 
-      {/* Witness vote count */}
+      {/* Witness vote count + proxy */}
       {activeTab === 'witnesses' && (
-        <View style={styles.voteCountRow}>
-          <Shield size={14} color={colors.textTertiary} />
-          <Text style={styles.voteCountText}>
-            Witness votes used: {votesUsed}/30
-          </Text>
+        <View>
+          <View style={styles.voteCountRow}>
+            <Shield size={14} color={colors.textTertiary} />
+            <Text style={styles.voteCountText}>
+              {currentProxy
+                ? `@${currentProxy} votes on your behalf`
+                : `Witness votes used: ${votesUsed}/30`}
+            </Text>
+          </View>
+          <View style={styles.proxyCard}>
+            <Text style={styles.proxyTitle}>Voting proxy</Text>
+            <Text style={styles.proxyText}>
+              {currentProxy
+                ? 'Your witness and proposal votes follow your proxy. Remove it to vote yourself.'
+                : 'Let another account cast witness and proposal votes for you.'}
+            </Text>
+            {currentProxy ? (
+              <Button
+                variant="danger"
+                size="sm"
+                loading={proxyWorking}
+                onPress={() => handleSetProxy('')}
+                style={styles.proxyButton}
+              >
+                Remove @{currentProxy}
+              </Button>
+            ) : (
+              <View style={styles.proxyRow}>
+                <Input
+                  placeholder="username"
+                  value={proxyInput}
+                  onChangeText={setProxyInput}
+                  autoCapitalize="none"
+                  autoCorrect={false}
+                  containerStyle={styles.proxyInput}
+                />
+                <Button
+                  variant="secondary"
+                  size="md"
+                  loading={proxyWorking}
+                  disabled={!proxyInput.trim()}
+                  onPress={() => handleSetProxy(proxyInput)}
+                >
+                  Set
+                </Button>
+              </View>
+            )}
+          </View>
         </View>
       )}
 
@@ -495,6 +589,39 @@ const styles = StyleSheet.create({
     padding: 16,
     gap: 10,
     paddingBottom: 40,
+  },
+  proxyCard: {
+    marginHorizontal: 16,
+    marginTop: 8,
+    padding: 14,
+    borderRadius: 14,
+    backgroundColor: colors.surface,
+    borderWidth: 1,
+    borderColor: colors.border,
+    gap: 8,
+  },
+  proxyTitle: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: colors.textPrimary,
+  },
+  proxyText: {
+    fontSize: 12,
+    lineHeight: 17,
+    color: colors.textSecondary,
+  },
+  proxyRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginTop: 4,
+  },
+  proxyInput: {
+    flex: 1,
+  },
+  proxyButton: {
+    alignSelf: 'flex-start',
+    marginTop: 4,
   },
   loadingContainer: {
     alignItems: 'center',

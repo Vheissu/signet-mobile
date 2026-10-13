@@ -39,8 +39,13 @@ export function getClient(nodes?: string[]): Client {
   return client;
 }
 
+/**
+ * Point the client at the user's nodes. The first entry is tried first;
+ * dhive fails over to the rest. Duplicates and blanks are dropped.
+ */
 export function setNodes(nodes: string[]): void {
-  client = new Client(nodes, {
+  const unique = Array.from(new Set(nodes.map((n) => n.trim()).filter(Boolean)));
+  client = new Client(unique.length > 0 ? unique : DEFAULT_NODES, {
     timeout: 10000,
     failoverThreshold: 3,
   });
@@ -73,6 +78,13 @@ const ALLOWED_OPS = new Set([
   'curation_reward',
   'author_reward',
   'producer_reward',
+  'interest',
+  'fill_vesting_withdraw',
+  'fill_transfer_from_savings',
+  'fill_recurrent_transfer',
+  'recurrent_transfer',
+  'convert',
+  'collateralized_convert',
   'custom_json', // parsed into HE ops below
 ]);
 
@@ -121,13 +133,48 @@ function parseHiveEngineOp(data: any): {
   }
 }
 
+export interface HistoryPage {
+  records: TransactionRecord[];
+  /** Index of the oldest raw operation in this page; pass `oldestIndex - 1` as `start` for the next page. */
+  oldestIndex: number;
+  hasMore: boolean;
+}
+
+/**
+ * One page of account history, newest first.
+ *
+ * `start` is the raw operation index to read back from (-1 = latest). The
+ * node enforces `start >= limit - 1`, so the limit is clamped on the last
+ * page.
+ */
+export async function getAccountHistoryPage(
+  username: string,
+  start: number = -1,
+  limit: number = 200
+): Promise<HistoryPage> {
+  const effectiveLimit = start === -1 ? limit : Math.max(1, Math.min(limit, start + 1));
+  const history: any[] = await getClient().database.getAccountHistory(username, start, effectiveLimit);
+  if (!Array.isArray(history) || history.length === 0) {
+    return { records: [], oldestIndex: 0, hasMore: false };
+  }
+  const oldestIndex = Math.min(...history.map(([index]: any) => Number(index)));
+  return {
+    records: mapHistory(history),
+    oldestIndex,
+    hasMore: oldestIndex > 0,
+  };
+}
+
 export async function getAccountHistory(
   username: string,
   start: number = -1,
   limit: number = 100
 ): Promise<TransactionRecord[]> {
-  const history = await getClient().database.getAccountHistory(username, start, limit);
+  const page = await getAccountHistoryPage(username, start, limit);
+  return page.records;
+}
 
+function mapHistory(history: any[]): TransactionRecord[] {
   return history
     .map(([, op]: any) => {
       const [type, data] = op.op;
@@ -205,6 +252,28 @@ export async function getAccountHistory(
         case 'fill_order':
           from = data.current_owner;
           amount = data.current_pays;
+          break;
+        case 'interest':
+          from = data.owner; to = data.owner;
+          amount = data.interest;
+          break;
+        case 'fill_vesting_withdraw':
+          from = data.from_account; to = data.to_account;
+          amount = data.deposited;
+          break;
+        case 'fill_transfer_from_savings':
+          from = data.from; to = data.to;
+          amount = data.amount; memo = data.memo || '';
+          break;
+        case 'recurrent_transfer':
+        case 'fill_recurrent_transfer':
+          from = data.from; to = data.to;
+          amount = data.amount; memo = data.memo || '';
+          break;
+        case 'convert':
+        case 'collateralized_convert':
+          from = data.owner; to = data.owner;
+          amount = data.amount;
           break;
         default:
           // Skip anything we don't explicitly handle
@@ -342,13 +411,14 @@ export async function broadcastDelegateVestingShares(
   );
 }
 
+/** Witness votes require active authority. */
 export async function broadcastWitnessVote(
   account: string,
   witness: string,
   approve: boolean,
-  postingKey: string
+  activeKey: string
 ) {
-  const key = PrivateKey.fromString(postingKey);
+  const key = PrivateKey.fromString(activeKey);
   return getClient().broadcast.sendOperations(
     [
       [
@@ -360,13 +430,14 @@ export async function broadcastWitnessVote(
   );
 }
 
+/** Proposal votes require active authority. */
 export async function broadcastProposalVote(
   voter: string,
   proposalIds: number[],
   approve: boolean,
-  postingKey: string
+  activeKey: string
 ) {
-  const key = PrivateKey.fromString(postingKey);
+  const key = PrivateKey.fromString(activeKey);
   return getClient().broadcast.sendOperations(
     [
       [
@@ -483,12 +554,13 @@ export async function broadcastClaimRewards(
   );
 }
 
+/** Setting a governance proxy requires active authority. */
 export async function broadcastSetProxy(
   account: string,
   proxy: string,
-  postingKey: string
+  activeKey: string
 ) {
-  const key = PrivateKey.fromString(postingKey);
+  const key = PrivateKey.fromString(activeKey);
   return getClient().broadcast.sendOperations(
     [['account_witness_proxy', { account, proxy }]],
     key

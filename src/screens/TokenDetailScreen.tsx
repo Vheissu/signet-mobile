@@ -7,6 +7,7 @@ import {
   TouchableOpacity,
   Dimensions,
   Platform,
+  ActivityIndicator,
 } from 'react-native';
 import { useNavigation, useRoute } from '@react-navigation/native';
 import {
@@ -28,7 +29,6 @@ import { Modal } from '../components/ui/Modal';
 import { Input } from '../components/ui/Input';
 import {
   getTokenPrice,
-  getTokenHistory,
   buildTransferPayload,
   buildStakePayload,
   buildUnstakePayload,
@@ -39,6 +39,7 @@ import { broadcastCustomJson } from '../core/hive/client';
 import { useAccounts } from '../hooks/useAccounts';
 import { logger } from '../core/logger';
 import { isValidHiveUsername, sanitizeUsername } from '../core/validation';
+import { fetchTokenPriceHistory, formatTick, percentChange, type PricePoint } from '../core/prices';
 
 const SCREEN_WIDTH = Dimensions.get('window').width;
 const CHART_WIDTH = SCREEN_WIDTH - 64;
@@ -78,73 +79,62 @@ const TokenDetailScreen: React.FC = () => {
   const [actionAmount, setActionAmount] = useState('');
   const [actionRecipient, setActionRecipient] = useState('');
   const [actionLoading, setActionLoading] = useState(false);
-  const [chartData, setChartData] = useState<number[]>([]);
+  const [chartData, setChartData] = useState<PricePoint[]>([]);
+  const [historyStatus, setHistoryStatus] = useState<'loading' | 'ready' | 'empty' | 'error'>('loading');
   const [currentPrice, setCurrentPrice] = useState(token.price);
-  const [priceChange, setPriceChange] = useState(0);
 
-  // Load real price chart data
+  // Real daily closes from the Hive Engine market history
   useEffect(() => {
     let cancelled = false;
+    setHistoryStatus('loading');
 
-    async function loadChartData() {
-      try {
-        // Fetch recent price from market
-        const price = await getTokenPrice(symbol);
-        if (cancelled) return;
-        if (price > 0) setCurrentPrice(price);
+    getTokenPrice(symbol)
+      .then((price) => {
+        if (!cancelled && price > 0) setCurrentPrice(price);
+      })
+      .catch((err) => logger.warn('[TokenDetail] price unavailable:', err));
 
-        // Fetch transaction history to approximate price points
-        if (activeAccountName) {
-          const history = await getTokenHistory(activeAccountName, symbol, 30);
-          if (cancelled) return;
-
-          if (history.length > 0) {
-            // Build a simple price series from trade quantities
-            const prices = history.map((_, i) => {
-              // Create slight variations around current price for chart display
-              const variation = (Math.sin(i * 0.5) * 0.1 + 1) * price;
-              return variation;
-            });
-            if (prices.length > 1) {
-              setChartData(prices);
-              const firstPrice = prices[0];
-              const lastPrice = prices[prices.length - 1];
-              if (firstPrice > 0) {
-                setPriceChange(((lastPrice - firstPrice) / firstPrice) * 100);
-              }
-            }
-          }
-        }
-      } catch (err) {
-        logger.error('[TokenDetail] Failed to load price data:', err);
+    fetchTokenPriceHistory(symbol, 30).then((points) => {
+      if (cancelled) return;
+      if (points === null) {
+        setChartData([]);
+        setHistoryStatus('error');
+      } else if (points.length < 2) {
+        setChartData([]);
+        setHistoryStatus('empty');
+      } else {
+        setChartData(points);
+        setHistoryStatus('ready');
       }
-    }
+    });
 
-    loadChartData();
     return () => {
       cancelled = true;
     };
-  }, [symbol, activeAccountName]);
+  }, [symbol]);
+
+  const priceChange = historyStatus === 'ready' ? percentChange(chartData) : 0;
 
   // Chart path generation
   const chartPath = useMemo(() => {
     if (chartData.length < 2) return '';
-    const minVal = Math.min(...chartData);
-    const maxVal = Math.max(...chartData);
+    const values = chartData.map((p) => p.price);
+    const minVal = Math.min(...values);
+    const maxVal = Math.max(...values);
     const range = maxVal - minVal || 1;
-    const stepX = CHART_WIDTH / (chartData.length - 1);
+    const t0 = chartData[0].time;
+    const span = chartData[chartData.length - 1].time - t0 || 1;
 
     let path = '';
-    chartData.forEach((val, i) => {
-      const x = i * stepX;
-      const y = CHART_HEIGHT - ((val - minVal) / range) * (CHART_HEIGHT - 20);
+    chartData.forEach((point, i) => {
+      const x = ((point.time - t0) / span) * CHART_WIDTH;
+      const y = CHART_HEIGHT - ((point.price - minVal) / range) * (CHART_HEIGHT - 20);
       if (i === 0) {
         path += `M ${x} ${y}`;
       } else {
-        const prevX = (i - 1) * stepX;
-        const prevY =
-          CHART_HEIGHT -
-          ((chartData[i - 1] - minVal) / range) * (CHART_HEIGHT - 20);
+        const prev = chartData[i - 1];
+        const prevX = ((prev.time - t0) / span) * CHART_WIDTH;
+        const prevY = CHART_HEIGHT - ((prev.price - minVal) / range) * (CHART_HEIGHT - 20);
         const cpX = (prevX + x) / 2;
         path += ` C ${cpX} ${prevY} ${cpX} ${y} ${x} ${y}`;
       }
@@ -301,9 +291,13 @@ const TokenDetailScreen: React.FC = () => {
 
         {/* Price Chart */}
         <Card variant="default" padding="md" style={styles.chartCard}>
-          <Text style={styles.chartTitle}>Price (30 days)</Text>
+          <Text style={styles.chartTitle}>Price in HIVE, last 30 days</Text>
           <View style={styles.chartContainer}>
-            {chartData.length >= 2 ? (
+            {historyStatus === 'loading' ? (
+              <View style={styles.chartPlaceholder}>
+                <ActivityIndicator size="small" color={colors.textTertiary} />
+              </View>
+            ) : historyStatus === 'ready' ? (
               <Svg width={CHART_WIDTH} height={CHART_HEIGHT}>
                 <Defs>
                   <LinearGradient id="chartGradient" x1="0" y1="0" x2="0" y2="1">
@@ -326,15 +320,21 @@ const TokenDetailScreen: React.FC = () => {
                 )}
               </Svg>
             ) : (
-              <View style={{ height: CHART_HEIGHT, justifyContent: 'center', alignItems: 'center' }}>
-                <Text style={styles.chartLabel}>No chart data available</Text>
+              <View style={styles.chartPlaceholder}>
+                <Text style={styles.chartLabel}>
+                  {historyStatus === 'empty'
+                    ? `No market history for ${symbol}`
+                    : 'Price history unavailable right now'}
+                </Text>
               </View>
             )}
           </View>
-          <View style={styles.chartFooter}>
-            <Text style={styles.chartLabel}>30d ago</Text>
-            <Text style={styles.chartLabel}>Today</Text>
-          </View>
+          {historyStatus === 'ready' && (
+            <View style={styles.chartFooter}>
+              <Text style={styles.chartLabel}>{formatTick(chartData[0].time, 'days')}</Text>
+              <Text style={styles.chartLabel}>{formatTick(chartData[chartData.length - 1].time, 'days')}</Text>
+            </View>
+          )}
         </Card>
 
         {/* Balance Cards Grid */}
@@ -605,6 +605,11 @@ const styles = StyleSheet.create({
   chartFooter: {
     flexDirection: 'row',
     justifyContent: 'space-between',
+  },
+  chartPlaceholder: {
+    height: CHART_HEIGHT,
+    justifyContent: 'center',
+    alignItems: 'center',
   },
   chartLabel: {
     fontSize: 11,

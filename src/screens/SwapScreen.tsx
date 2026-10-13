@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useMemo } from 'react';
+import React, { useState, useCallback, useMemo, useEffect } from 'react';
 import {
   View,
   Text,
@@ -24,7 +24,10 @@ import { useAccounts } from '../hooks/useAccounts';
 import {
   broadcastConvert,
   broadcastCollateralizedConvert,
+  getCurrentMedianHistoryPrice,
 } from '../core/hive/client';
+import { parseAmount } from '../core/hive/operations';
+import { logger } from '../core/logger';
 import { Card } from '../components/ui/Card';
 import { Button } from '../components/ui/Button';
 import { Input } from '../components/ui/Input';
@@ -36,17 +39,35 @@ type SwapDirection = 'hiveToHbd' | 'hbdToHive';
 const SwapScreen: React.FC = () => {
   const navigation = useNavigation();
   const addToast = useStore((s) => s.addToast);
-  const { balances, formatNumber, refreshAccountData, hivePriceUsd } = useHive();
+  const { balances, formatNumber, refreshAccountData } = useHive();
   const { activeAccountName, getDecryptedKey } = useAccounts();
 
   const [direction, setDirection] = useState<SwapDirection>('hiveToHbd');
   const [amount, setAmount] = useState('');
   const [loading, setLoading] = useState(false);
   const [submitted, setSubmitted] = useState(false);
+  // HBD per HIVE from the witness median price feed, which is what the
+  // conversion actually settles against (not the exchange price).
+  const [medianPrice, setMedianPrice] = useState(0);
+
+  useEffect(() => {
+    let cancelled = false;
+    getCurrentMedianHistoryPrice()
+      .then((price: any) => {
+        if (cancelled) return;
+        const base = parseAmount(String(price.base)).amount; // HBD
+        const quote = parseAmount(String(price.quote)).amount; // HIVE
+        if (base > 0 && quote > 0) setMedianPrice(base / quote);
+      })
+      .catch((e) => logger.warn('[Swap] median price unavailable:', e));
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const hiveBalance = formatNumber(balances.hive);
   const hbdBalance = formatNumber(balances.hbd);
-  const hivePrice = hivePriceUsd > 0 ? hivePriceUsd : 0;
+  const hivePrice = medianPrice;
 
   const fromCurrency = direction === 'hiveToHbd' ? 'HIVE' : 'HBD';
   const toCurrency = direction === 'hiveToHbd' ? 'HBD' : 'HIVE';
@@ -56,7 +77,10 @@ const SwapScreen: React.FC = () => {
     const parsed = parseFloat(amount);
     if (!parsed || parsed <= 0 || hivePrice <= 0) return '0.000';
     if (direction === 'hiveToHbd') {
-      return (parsed * hivePrice).toFixed(3);
+      // Collateralized convert: HBD is issued up front for roughly half the
+      // collateral's value at 5% under the median; the rest of the HIVE
+      // comes back after 3.5 days.
+      return ((parsed * hivePrice * 0.95) / 2).toFixed(3);
     }
     return (parsed / hivePrice).toFixed(3);
   }, [amount, direction, hivePrice]);
@@ -232,15 +256,15 @@ const SwapScreen: React.FC = () => {
               <Text style={styles.infoTitle}>3.5 Day Conversion</Text>
             </View>
             <Text style={styles.infoText}>
-              Conversions on the Hive blockchain take approximately 3.5 days to
-              complete. The final amount may differ slightly based on the
-              median price feed at the time of conversion.
+              Conversions settle against the witness median price feed, not
+              an exchange, and take about 3.5 days. The estimate uses the
+              current feed; the final amount depends on the feed at settlement.
             </Text>
             <View style={styles.infoBullets}>
               <View style={styles.infoBullet}>
                 <View style={styles.bulletDot} />
                 <Text style={styles.bulletText}>
-                  HIVE to HBD uses the current median price
+                  HIVE to HBD locks your HIVE as collateral and pays out about half its value in HBD now; the unused collateral returns after 3.5 days
                 </Text>
               </View>
               <View style={styles.infoBullet}>
@@ -263,8 +287,9 @@ const SwapScreen: React.FC = () => {
             <View style={styles.warningRow}>
               <Info size={14} color={colors.warning} />
               <Text style={styles.warningText}>
-                The output amount is estimated and may vary based on the price
-                feed during the conversion period.
+                For a quick swap at market price, trade on an exchange or the
+                internal market instead. Conversion is for moving between HIVE
+                and HBD without an order book.
               </Text>
             </View>
           </Card>

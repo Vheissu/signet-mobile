@@ -39,8 +39,12 @@ type Currency = 'HIVE' | 'HBD';
 const SavingsScreen: React.FC = () => {
   const navigation = useNavigation();
   const addToast = useStore((s) => s.addToast);
-  const { balances, formatNumber, refreshAccountData } = useHive();
+  const { balances, formatNumber, refreshAccountData, globalProperties } = useHive();
   const { activeAccountName, getDecryptedKey } = useAccounts();
+
+  // The chain publishes the HBD savings rate in basis points (median of witness votes).
+  const hbdApr = globalProperties ? Number((globalProperties as any).hbd_interest_rate || 0) / 100 : null;
+  const aprLabel = hbdApr === null ? '–' : `${hbdApr.toFixed(hbdApr % 1 === 0 ? 0 : 2)}%`;
 
   const [activeTab, setActiveTab] = useState<SavingsTab>('deposit');
   const [currency, setCurrency] = useState<Currency>('HBD');
@@ -224,7 +228,7 @@ const SavingsScreen: React.FC = () => {
               <View style={styles.balanceHeaderRow}>
                 <PiggyBank size={16} color={colors.success} />
                 <Text style={styles.balanceLabel}>HBD Savings</Text>
-                <Badge variant="success">20% APR</Badge>
+                <Badge variant="success">{aprLabel} APR</Badge>
               </View>
               <Text style={styles.balanceValue}>{hbdSavings}</Text>
               <Text style={styles.balanceSub}>HBD</Text>
@@ -236,7 +240,7 @@ const SavingsScreen: React.FC = () => {
             <View style={styles.aprRow}>
               <TrendingUp size={14} color={colors.success} />
               <Text style={styles.aprText}>
-                HBD savings earn <Text style={styles.aprHighlight}>20% APR</Text> paid monthly
+                HBD savings earn <Text style={styles.aprHighlight}>{aprLabel} APR</Text>, paid monthly, set by witness vote
               </Text>
             </View>
           </Card>
@@ -325,7 +329,7 @@ const SavingsScreen: React.FC = () => {
                 <View style={styles.infoHighlight}>
                   <TrendingUp size={14} color={colors.success} />
                   <Text style={styles.infoHighlightText}>
-                    HBD savings earn 20% annual interest, paid monthly.
+                    HBD savings earn {aprLabel} annual interest, paid monthly.
                   </Text>
                 </View>
               )}

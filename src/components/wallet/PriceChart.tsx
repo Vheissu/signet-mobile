@@ -1,220 +1,211 @@
-import React, { useState, useMemo, useCallback, useEffect } from 'react';
-import { View, Text, TouchableOpacity, StyleSheet, ActivityIndicator } from 'react-native';
-import Svg, { Path, Defs, LinearGradient, Stop } from 'react-native-svg';
-import { TrendingUp, TrendingDown } from 'lucide-react-native';
+import React, { useState, useMemo, useEffect } from 'react';
+import { View, Text, TouchableOpacity, StyleSheet, ActivityIndicator, LayoutChangeEvent } from 'react-native';
+import Svg, { Path, Circle, Line } from 'react-native-svg';
 import { colors } from '../../theme';
-import { coingeckoFetch } from '../../core/constants';
-
-type TimeRange = '1h' | '24h' | '1w' | '1m' | '1y';
+import {
+  fetchPriceHistory,
+  formatTick,
+  percentChange,
+  PRICE_RANGES,
+  type PricePoint,
+  type PriceRange,
+} from '../../core/prices';
 
 interface PriceChartProps {
   currentPrice: number;
-  symbol?: string;
+  symbol?: 'HIVE' | 'HBD';
 }
 
-const TIME_RANGES: { key: TimeRange; label: string; days: string }[] = [
-  { key: '1h', label: '1H', days: '0.042' },  // ~1 hour
-  { key: '24h', label: '24H', days: '1' },
-  { key: '1w', label: '1W', days: '7' },
-  { key: '1m', label: '1M', days: '30' },
-  { key: '1y', label: '1Y', days: '365' },
-];
+const RANGE_LABELS: Record<PriceRange, string> = {
+  '1h': '1H',
+  '24h': '24H',
+  '1w': '1W',
+  '1m': '1M',
+  '1y': '1Y',
+};
 
-const CHART_WIDTH = 320;
-const CHART_HEIGHT = 140;
-const CHART_PADDING = 4;
+const CHART_HEIGHT = 150;
+const PAD_TOP = 10;
+const PAD_BOTTOM = 22;
+const PAD_X = 6;
 
-function buildLinePath(
-  data: number[],
-  width: number,
-  height: number,
-): { linePath: string; areaPath: string; min: number; max: number } {
-  if (data.length === 0) {
-    return { linePath: '', areaPath: '', min: 0, max: 0 };
-  }
-
-  const min = Math.min(...data);
-  const max = Math.max(...data);
-  const range = max - min || 1;
-
-  const xStep = (width - CHART_PADDING * 2) / (data.length - 1);
-
-  const points = data.map((value, i) => {
-    const x = CHART_PADDING + i * xStep;
-    const y =
-      CHART_PADDING + (1 - (value - min) / range) * (height - CHART_PADDING * 2);
-    return { x, y };
-  });
-
-  // Build smooth line path using quadratic bezier curves
-  let linePath = `M ${points[0].x} ${points[0].y}`;
-  for (let i = 1; i < points.length; i++) {
-    const prev = points[i - 1];
-    const curr = points[i];
-    const cpx = (prev.x + curr.x) / 2;
-    linePath += ` Q ${cpx} ${prev.y} ${curr.x} ${curr.y}`;
-  }
-
-  // Build area path (same line + close to bottom)
-  const lastPoint = points[points.length - 1];
-  const firstPoint = points[0];
-  const areaPath = `${linePath} L ${lastPoint.x} ${height} L ${firstPoint.x} ${height} Z`;
-
-  return { linePath, areaPath, min, max };
+interface Geometry {
+  linePath: string;
+  areaPath: string;
+  last: { x: number; y: number };
+  ticks: { x: number; label: string; anchor: 'start' | 'middle' | 'end' }[];
 }
 
-async function fetchPriceHistory(days: string): Promise<number[] | null> {
-  try {
-    const response = await coingeckoFetch(
-      `/coins/hive/market_chart?vs_currency=usd&days=${days}`,
-    );
-    if (!response.ok) return null;
-    const data = await response.json();
-    // data.prices is [[timestamp, price], ...]
-    const prices: number[] = data?.prices?.map((p: [number, number]) => p[1]) ?? [];
-    return prices.length > 2 ? prices : null;
-  } catch {
-    return null;
+function buildGeometry(data: PricePoint[], width: number, range: PriceRange): Geometry | null {
+  if (data.length < 2 || width <= 0) return null;
+
+  const innerW = width - PAD_X * 2;
+  const innerH = CHART_HEIGHT - PAD_TOP - PAD_BOTTOM;
+  const t0 = data[0].time;
+  const t1 = data[data.length - 1].time;
+  const span = t1 - t0 || 1;
+  let min = Infinity;
+  let max = -Infinity;
+  for (const p of data) {
+    if (p.price < min) min = p.price;
+    if (p.price > max) max = p.price;
   }
+  const pad = (max - min) * 0.08 || max * 0.01 || 1;
+  min -= pad;
+  max += pad;
+
+  const x = (t: number) => PAD_X + ((t - t0) / span) * innerW;
+  const y = (v: number) => PAD_TOP + (1 - (v - min) / (max - min)) * innerH;
+
+  // Monotone-ish smoothing with quadratic midpoints
+  let d = `M ${x(data[0].time).toFixed(2)} ${y(data[0].price).toFixed(2)}`;
+  for (let i = 1; i < data.length; i += 1) {
+    const prev = data[i - 1];
+    const curr = data[i];
+    const cx = ((x(prev.time) + x(curr.time)) / 2).toFixed(2);
+    d += ` Q ${cx} ${y(prev.price).toFixed(2)} ${x(curr.time).toFixed(2)} ${y(curr.price).toFixed(2)}`;
+  }
+  const baseline = PAD_TOP + innerH;
+  const areaPath = `${d} L ${x(t1).toFixed(2)} ${baseline} L ${x(t0).toFixed(2)} ${baseline} Z`;
+
+  const ticks = [t0, (t0 + t1) / 2, t1].map((t, i) => ({
+    x: x(t),
+    label: formatTick(t, range),
+    anchor: (i === 0 ? 'start' : i === 2 ? 'end' : 'middle') as 'start' | 'middle' | 'end',
+  }));
+
+  return {
+    linePath: d,
+    areaPath,
+    last: { x: x(t1), y: y(data[data.length - 1].price) },
+    ticks,
+  };
 }
 
-export const PriceChart: React.FC<PriceChartProps> = ({
-  currentPrice,
-  symbol = 'HIVE',
-}) => {
-  const [activeRange, setActiveRange] = useState<TimeRange>('24h');
-  const [priceData, setPriceData] = useState<number[]>([]);
-  const [loading, setLoading] = useState(true);
+/**
+ * Real market history from CoinGecko. Shows a plain message when the data
+ * cannot be loaded instead of inventing a line.
+ */
+export const PriceChart: React.FC<PriceChartProps> = ({ currentPrice, symbol = 'HIVE' }) => {
+  const [range, setRange] = useState<PriceRange>('24h');
+  const [data, setData] = useState<PricePoint[] | null>(null);
+  const [status, setStatus] = useState<'loading' | 'ready' | 'error'>('loading');
+  const [width, setWidth] = useState(0);
 
   useEffect(() => {
     let cancelled = false;
-    setLoading(true);
-
-    const rangeConfig = TIME_RANGES.find((r) => r.key === activeRange)!;
-    fetchPriceHistory(rangeConfig.days).then((data) => {
+    setStatus('loading');
+    fetchPriceHistory(symbol, range).then((points) => {
       if (cancelled) return;
-      if (data) {
-        setPriceData(data);
+      if (points && points.length >= 2) {
+        setData(points);
+        setStatus('ready');
       } else {
-        // Use current price as flat line if API fails
-        setPriceData([currentPrice, currentPrice]);
+        setData(null);
+        setStatus('error');
       }
-      setLoading(false);
     });
+    return () => {
+      cancelled = true;
+    };
+  }, [symbol, range]);
 
-    return () => { cancelled = true; };
-  }, [activeRange, currentPrice]);
-
-  const { linePath, areaPath } = useMemo(
-    () => buildLinePath(priceData, CHART_WIDTH, CHART_HEIGHT),
-    [priceData],
+  const geometry = useMemo(
+    () => (data && status === 'ready' ? buildGeometry(data, width, range) : null),
+    [data, status, width, range],
   );
 
-  const startPrice = priceData[0] || currentPrice;
-  const endPrice = priceData.length > 0 ? priceData[priceData.length - 1] : currentPrice;
-  const changePercent =
-    startPrice > 0 ? ((endPrice - startPrice) / startPrice) * 100 : 0;
-  const isPositive = changePercent >= 0;
+  const change = data && status === 'ready' ? percentChange(data) : null;
+  const isUp = (change ?? 0) >= 0;
+  const lineColor = isUp ? colors.success : colors.error;
+  const decimals = currentPrice >= 1 ? 3 : 4;
 
-  const handleRangePress = useCallback((range: TimeRange) => {
-    setActiveRange(range);
-  }, []);
+  const onLayout = (e: LayoutChangeEvent) => setWidth(e.nativeEvent.layout.width);
 
   return (
     <View style={styles.container}>
       <View style={styles.header}>
         <View>
-          <Text style={styles.symbolLabel}>{symbol} Price</Text>
-          <Text style={styles.priceText}>
-            ${currentPrice.toFixed(4)}
-          </Text>
+          <Text style={styles.symbolLabel}>{symbol} price</Text>
+          <Text style={styles.priceText}>${currentPrice.toFixed(decimals)}</Text>
         </View>
-        <View
-          style={[
-            styles.changeBadge,
-            isPositive ? styles.changeBadgePositive : styles.changeBadgeNegative,
-          ]}
-        >
-          {isPositive ? (
-            <TrendingUp size={12} color={colors.success} />
-          ) : (
-            <TrendingDown size={12} color={colors.error} />
-          )}
-          <Text
-            style={[
-              styles.changeText,
-              { color: isPositive ? colors.success : colors.error },
-            ]}
-          >
-            {isPositive ? '+' : ''}
-            {changePercent.toFixed(2)}%
-          </Text>
-        </View>
+        {change !== null && (
+          <View style={[styles.changeBadge, isUp ? styles.changeUp : styles.changeDown]}>
+            <Text style={[styles.changeText, { color: lineColor }]}>
+              {isUp ? '+' : ''}
+              {change.toFixed(2)}%
+            </Text>
+            <Text style={styles.changeRange}>{RANGE_LABELS[range]}</Text>
+          </View>
+        )}
       </View>
 
-      <View style={styles.chartContainer}>
-        {loading ? (
-          <View style={styles.chartLoading}>
+      <View style={styles.chartArea} onLayout={onLayout}>
+        {status === 'loading' && (
+          <View style={styles.centered}>
             <ActivityIndicator size="small" color={colors.textTertiary} />
           </View>
-        ) : (
-          <Svg
-            width="100%"
-            height={CHART_HEIGHT}
-            viewBox={`0 0 ${CHART_WIDTH} ${CHART_HEIGHT}`}
-            preserveAspectRatio="none"
-          >
-            <Defs>
-              <LinearGradient id="areaGradient" x1="0" y1="0" x2="0" y2="1">
-                <Stop
-                  offset="0"
-                  stopColor={isPositive ? colors.success : colors.hive}
-                  stopOpacity="0.25"
-                />
-                <Stop
-                  offset="1"
-                  stopColor={isPositive ? colors.success : colors.hive}
-                  stopOpacity="0"
-                />
-              </LinearGradient>
-            </Defs>
-            {areaPath ? (
-              <Path d={areaPath} fill="url(#areaGradient)" />
-            ) : null}
-            {linePath ? (
-              <Path
-                d={linePath}
-                fill="none"
-                stroke={isPositive ? colors.success : colors.hive}
-                strokeWidth={2}
-                strokeLinecap="round"
-                strokeLinejoin="round"
-              />
-            ) : null}
+        )}
+        {status === 'error' && (
+          <View style={styles.centered}>
+            <Text style={styles.unavailable}>Price history unavailable right now</Text>
+          </View>
+        )}
+        {geometry && (
+          <Svg width={width} height={CHART_HEIGHT}>
+            <Path d={geometry.areaPath} fill={lineColor} fillOpacity={0.12} />
+            <Path
+              d={geometry.linePath}
+              fill="none"
+              stroke={lineColor}
+              strokeWidth={2}
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            />
+            <Line
+              x1={PAD_X}
+              x2={width - PAD_X}
+              y1={CHART_HEIGHT - PAD_BOTTOM}
+              y2={CHART_HEIGHT - PAD_BOTTOM}
+              stroke={colors.border}
+              strokeWidth={1}
+            />
+            <Circle cx={geometry.last.x} cy={geometry.last.y} r={4} fill={lineColor} stroke={colors.surfaceElevated} strokeWidth={2} />
           </Svg>
+        )}
+        {geometry && (
+          <View style={styles.ticks} pointerEvents="none">
+            {geometry.ticks.map((tick) => (
+              <Text
+                key={`${tick.x}-${tick.label}`}
+                style={[
+                  styles.tick,
+                  tick.anchor === 'start'
+                    ? { left: tick.x }
+                    : tick.anchor === 'end'
+                    ? { right: width - tick.x }
+                    : { left: tick.x - 30, width: 60, textAlign: 'center' },
+                ]}
+              >
+                {tick.label}
+              </Text>
+            ))}
+          </View>
         )}
       </View>
 
       <View style={styles.rangeSelector}>
-        {TIME_RANGES.map((range) => {
-          const isActive = activeRange === range.key;
+        {PRICE_RANGES.map((r) => {
+          const isActive = range === r;
           return (
             <TouchableOpacity
-              key={range.key}
-              style={[
-                styles.rangeButton,
-                isActive && styles.rangeButtonActive,
-              ]}
-              onPress={() => handleRangePress(range.key)}
+              key={r}
+              style={[styles.rangeButton, isActive && styles.rangeButtonActive]}
+              onPress={() => setRange(r)}
               activeOpacity={0.7}
             >
-              <Text
-                style={[
-                  styles.rangeButtonText,
-                  isActive && styles.rangeButtonTextActive,
-                ]}
-              >
-                {range.label}
+              <Text style={[styles.rangeButtonText, isActive && styles.rangeButtonTextActive]}>
+                {RANGE_LABELS[r]}
               </Text>
             </TouchableOpacity>
           );
@@ -236,7 +227,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'flex-start',
     justifyContent: 'space-between',
-    marginBottom: 12,
+    marginBottom: 8,
   },
   symbolLabel: {
     color: colors.textSecondary,
@@ -246,36 +237,57 @@ const styles = StyleSheet.create({
   },
   priceText: {
     color: colors.textPrimary,
-    fontSize: 22,
+    fontSize: 24,
     fontWeight: '700',
-    letterSpacing: -0.3,
+    fontVariant: ['tabular-nums'],
   },
   changeBadge: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 4,
+    gap: 6,
     paddingHorizontal: 8,
     paddingVertical: 4,
     borderRadius: 8,
   },
-  changeBadgePositive: {
+  changeUp: {
     backgroundColor: 'rgba(92,234,160,0.12)',
   },
-  changeBadgeNegative: {
-    backgroundColor: 'rgba(227,19,55,0.12)',
+  changeDown: {
+    backgroundColor: 'rgba(239,71,111,0.12)',
   },
   changeText: {
     fontSize: 12,
     fontWeight: '700',
+    fontVariant: ['tabular-nums'],
   },
-  chartContainer: {
-    marginHorizontal: -8,
-    marginBottom: 12,
+  changeRange: {
+    fontSize: 10,
+    fontWeight: '600',
+    color: colors.textTertiary,
   },
-  chartLoading: {
+  chartArea: {
     height: CHART_HEIGHT,
+    marginHorizontal: -4,
+    marginBottom: 10,
+  },
+  centered: {
+    ...StyleSheet.absoluteFillObject,
     alignItems: 'center',
     justifyContent: 'center',
+  },
+  unavailable: {
+    fontSize: 12,
+    color: colors.textTertiary,
+  },
+  ticks: {
+    ...StyleSheet.absoluteFillObject,
+  },
+  tick: {
+    position: 'absolute',
+    bottom: 2,
+    fontSize: 10,
+    color: colors.textTertiary,
+    fontVariant: ['tabular-nums'],
   },
   rangeSelector: {
     flexDirection: 'row',
@@ -286,7 +298,6 @@ const styles = StyleSheet.create({
     paddingVertical: 6,
     alignItems: 'center',
     borderRadius: 8,
-    backgroundColor: 'transparent',
   },
   rangeButtonActive: {
     backgroundColor: colors.surfaceOverlay,
