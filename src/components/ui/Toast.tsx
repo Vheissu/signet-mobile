@@ -5,9 +5,9 @@ import {
   Animated,
   StyleSheet,
   TouchableOpacity,
-  Platform,
 } from 'react-native';
 import { CheckCircle, XCircle, Info } from 'lucide-react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { colors } from '../../theme';
 
 // ---- Types ----
@@ -160,6 +160,7 @@ const ToastItem: React.FC<ToastItemProps> = ({ item, onDismiss }) => {
 // ---- Toast Container ----
 
 export const ToastContainer: React.FC = () => {
+  const insets = useSafeAreaInsets();
   const [items, setItems] = React.useState<ToastMessage[]>([]);
 
   useEffect(() => {
@@ -173,7 +174,7 @@ export const ToastContainer: React.FC = () => {
   if (items.length === 0) return null;
 
   return (
-    <View style={styles.container} pointerEvents="box-none">
+    <View style={[styles.container, { top: insets.top + 8 }]} pointerEvents="box-none">
       {items.map((item) => (
         <ToastItem key={item.id} item={item} onDismiss={handleDismiss} />
       ))}
@@ -186,7 +187,6 @@ export const ToastContainer: React.FC = () => {
 const styles = StyleSheet.create({
   container: {
     position: 'absolute',
-    top: Platform.OS === 'ios' ? 56 : 40,
     left: 16,
     right: 16,
     zIndex: 9999,

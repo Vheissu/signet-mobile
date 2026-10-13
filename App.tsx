@@ -219,11 +219,6 @@ const styles = StyleSheet.create({
     backgroundColor: colors.hive,
     alignItems: 'center',
     justifyContent: 'center',
-    shadowColor: colors.hive,
-    shadowOffset: { width: 0, height: 0 },
-    shadowOpacity: 0.4,
-    shadowRadius: 24,
-    elevation: 8,
   },
   logoText: {
     fontSize: 28,

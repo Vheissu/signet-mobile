@@ -11,7 +11,6 @@ import {
 } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import {
-  ChevronLeft,
   Upload,
   FileText,
   CheckSquare,
@@ -26,6 +25,7 @@ import {
 import * as DocumentPicker from 'expo-document-picker';
 import * as FileSystem from 'expo-file-system/legacy';
 import { colors } from '../theme';
+import { ScreenHeader } from '../components/layout/ScreenHeader';
 import { useStore } from '../store';
 import { Card } from '../components/ui/Card';
 import { Button } from '../components/ui/Button';
@@ -292,22 +292,13 @@ const ImportKeysScreen: React.FC = () => {
 
   return (
     <View style={styles.container}>
-      {/* Header */}
-      <View style={styles.header}>
-        <TouchableOpacity
-          onPress={() => {
-            if (step === 2) setStep(1);
-            else if (step === 3 && importComplete) navigation.goBack();
-            else navigation.goBack();
-          }}
-          style={styles.backButton}
-          hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-        >
-          <ChevronLeft size={24} color={colors.textPrimary} />
-        </TouchableOpacity>
-        <Text style={styles.headerTitle}>Import Keys</Text>
-        <View style={styles.headerRight} />
-      </View>
+      <ScreenHeader
+        title="Import Keys"
+        onBack={() => {
+          if (step === 2) setStep(1);
+          else navigation.goBack();
+        }}
+      />
 
       {/* Progress */}
       <View style={styles.progressRow}>
@@ -507,32 +498,6 @@ const styles = StyleSheet.create({
   },
   flex: {
     flex: 1,
-  },
-  header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingHorizontal: 16,
-    paddingTop: Platform.OS === 'ios' ? 56 : 16,
-    paddingBottom: 12,
-    borderBottomWidth: 1,
-    borderBottomColor: colors.border,
-  },
-  backButton: {
-    width: 36,
-    height: 36,
-    borderRadius: 12,
-    backgroundColor: colors.surfaceElevated,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  headerTitle: {
-    fontSize: 18,
-    fontWeight: '700',
-    color: colors.textPrimary,
-  },
-  headerRight: {
-    width: 36,
   },
   progressRow: {
     flexDirection: 'row',

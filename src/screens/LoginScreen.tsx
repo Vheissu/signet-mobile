@@ -3,13 +3,10 @@ import {
   View,
   Text,
   StyleSheet,
-  StatusBar,
-  Platform,
   Alert,
-  Dimensions,
 } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import Svg, { Polygon, Defs, RadialGradient, Stop } from 'react-native-svg';
+import Svg, { Polygon } from 'react-native-svg';
 import { Fingerprint } from 'lucide-react-native';
 import { colors } from '../theme';
 import { Button } from '../components/ui/Button';
@@ -24,8 +21,6 @@ import {
 
 const LOCKOUT_STORAGE_KEY = 'signet_login_lockout';
 
-const { width: SCREEN_WIDTH } = Dimensions.get('window');
-
 const SignetLogo: React.FC = () => {
   const size = 80;
   const cx = size / 2;
@@ -39,20 +34,8 @@ const SignetLogo: React.FC = () => {
 
   return (
     <View style={styles.logoContainer}>
-      <View style={styles.logoGlow} />
       <Svg width={size} height={size} viewBox={`0 0 ${size} ${size}`}>
-        <Defs>
-          <RadialGradient id="hexGrad" cx="50%" cy="50%" r="50%">
-            <Stop offset="0%" stopColor={colors.hiveLight} />
-            <Stop offset="100%" stopColor={colors.hiveDark} />
-          </RadialGradient>
-        </Defs>
-        <Polygon
-          points={points}
-          fill="url(#hexGrad)"
-          stroke={colors.hiveLight}
-          strokeWidth={1.5}
-        />
+        <Polygon points={points} fill={colors.hive} />
       </Svg>
       <Text style={styles.logoLetter}>S</Text>
     </View>
@@ -190,8 +173,6 @@ export const LoginScreen: React.FC = () => {
 
   return (
     <View style={styles.container}>
-      <StatusBar barStyle="light-content" backgroundColor={colors.bg} />
-
       <View style={styles.content}>
         {/* Logo */}
         <View style={styles.heroSection}>
@@ -284,24 +265,6 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     marginBottom: 20,
-  },
-  logoGlow: {
-    position: 'absolute',
-    width: 120,
-    height: 120,
-    borderRadius: 60,
-    backgroundColor: 'rgba(227,19,55,0.12)',
-    ...Platform.select({
-      ios: {
-        shadowColor: colors.hive,
-        shadowOffset: { width: 0, height: 0 },
-        shadowOpacity: 0.5,
-        shadowRadius: 30,
-      },
-      android: {
-        elevation: 16,
-      },
-    }),
   },
   logoLetter: {
     position: 'absolute',

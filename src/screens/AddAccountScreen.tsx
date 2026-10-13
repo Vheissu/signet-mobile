@@ -10,7 +10,6 @@ import {
 } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import {
-  ArrowLeft,
   AtSign,
   Key,
   CheckCircle,
@@ -24,6 +23,7 @@ import {
   AlertTriangle,
 } from 'lucide-react-native';
 import { colors } from '../theme';
+import { ScreenHeader } from '../components/layout/ScreenHeader';
 import { useStore } from '../store';
 import { Card } from '../components/ui/Card';
 import { Button } from '../components/ui/Button';
@@ -203,36 +203,14 @@ const AddAccountScreen: React.FC = () => {
 
   return (
     <View style={styles.container}>
-      {/* Header */}
-      <View style={styles.header}>
-        {canGoBack ? (
-          <TouchableOpacity
-            onPress={() => {
-              if (step === 'keys') {
-                setStep('username');
-              } else {
-                navigation.goBack();
-              }
-            }}
-            style={styles.backButton}
-            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-          >
-            <ArrowLeft size={20} color={colors.textPrimary} />
-          </TouchableOpacity>
-        ) : step === 'keys' ? (
-          <TouchableOpacity
-            onPress={() => setStep('username')}
-            style={styles.backButton}
-            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-          >
-            <ArrowLeft size={20} color={colors.textPrimary} />
-          </TouchableOpacity>
-        ) : (
-          <View style={styles.backButton} />
-        )}
-        <Text style={styles.headerTitle}>Add Account</Text>
-        <View style={{ width: 36 }} />
-      </View>
+      <ScreenHeader
+        title="Add Account"
+        hideBack={!canGoBack && step !== 'keys'}
+        onBack={() => {
+          if (step === 'keys') setStep('username');
+          else navigation.goBack();
+        }}
+      />
 
       {/* Progress */}
       <View style={styles.progressRow}>
@@ -429,29 +407,6 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: colors.bg,
-  },
-  header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingHorizontal: 16,
-    paddingTop: Platform.OS === 'ios' ? 56 : 16,
-    paddingBottom: 12,
-    borderBottomWidth: 1,
-    borderBottomColor: colors.border,
-  },
-  backButton: {
-    width: 36,
-    height: 36,
-    borderRadius: 12,
-    backgroundColor: colors.surfaceElevated,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  headerTitle: {
-    fontSize: 18,
-    fontWeight: '700',
-    color: colors.textPrimary,
   },
   progressRow: {
     flexDirection: 'row',

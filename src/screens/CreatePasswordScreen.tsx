@@ -7,11 +7,11 @@ import {
   TouchableOpacity,
   KeyboardAvoidingView,
   Platform,
-  StatusBar,
 } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
-import { ArrowLeft, ShieldCheck, Info } from 'lucide-react-native';
+import { ShieldCheck, Info } from 'lucide-react-native';
 import { colors } from '../theme';
+import { ScreenHeader } from '../components/layout/ScreenHeader';
 import { useStore } from '../store';
 import { Button } from '../components/ui/Button';
 import { Input } from '../components/ui/Input';
@@ -120,25 +120,11 @@ export const CreatePasswordScreen: React.FC = () => {
 
   return (
     <View style={styles.container}>
-      <StatusBar barStyle="light-content" backgroundColor={colors.bg} />
-
       <KeyboardAvoidingView
         style={styles.keyboardView}
         behavior={Platform.OS === 'ios' ? 'padding' : undefined}
       >
-        {/* Header */}
-        <View style={styles.header}>
-          <TouchableOpacity
-            onPress={() => navigation.goBack()}
-            style={styles.backButton}
-            activeOpacity={0.7}
-            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-          >
-            <ArrowLeft size={22} color={colors.textPrimary} />
-          </TouchableOpacity>
-          <Text style={styles.headerTitle}>Create Password</Text>
-          <View style={styles.headerSpacer} />
-        </View>
+        <ScreenHeader title="Create Password" />
 
         <ScrollView
           style={styles.scrollView}
@@ -224,32 +210,6 @@ const styles = StyleSheet.create({
   },
   keyboardView: {
     flex: 1,
-  },
-  header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingHorizontal: 16,
-    paddingVertical: 14,
-    paddingTop: Platform.OS === 'ios' ? 56 : 14,
-    borderBottomWidth: 1,
-    borderBottomColor: colors.border,
-  },
-  backButton: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    backgroundColor: colors.surfaceElevated,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  headerTitle: {
-    fontSize: 17,
-    fontWeight: '700',
-    color: colors.textPrimary,
-  },
-  headerSpacer: {
-    width: 36,
   },
   scrollView: {
     flex: 1,

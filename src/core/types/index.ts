@@ -24,9 +24,6 @@ export interface Settings {
   autoLockMinutes: number;
   rpcNodes: string[];
   activeRpc: string;
-  theme: 'dark' | 'light';
-  currency: string;
-  showTestnets: boolean;
   biometricEnabled: boolean;
   coingeckoApiKey: string;
 }
@@ -41,9 +38,6 @@ export const DEFAULT_SETTINGS: Settings = {
     'https://rpc.ausbit.dev',
   ],
   activeRpc: 'https://api.hive.blog',
-  theme: 'dark',
-  currency: 'USD',
-  showTestnets: false,
   biometricEnabled: false,
   coingeckoApiKey: '',
 };

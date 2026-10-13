@@ -5,12 +5,9 @@ import {
   StyleSheet,
   ScrollView,
   TouchableOpacity,
-  Platform,
-  StatusBar,
 } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import {
-  ArrowLeft,
   Copy,
   Link,
   Smartphone,
@@ -20,6 +17,7 @@ import {
 import QRCode from 'react-native-qrcode-svg';
 import * as Clipboard from 'expo-clipboard';
 import { colors } from '../theme';
+import { ScreenHeader } from '../components/layout/ScreenHeader';
 import { Button } from '../components/ui/Button';
 import { Input } from '../components/ui/Input';
 import { Avatar } from '../components/ui/Avatar';
@@ -103,20 +101,7 @@ export const ReceiveScreen: React.FC = () => {
 
   return (
     <View style={styles.container}>
-      <StatusBar barStyle="light-content" backgroundColor={colors.bg} />
-
-      {/* Header */}
-      <View style={styles.header}>
-        <TouchableOpacity
-          onPress={() => navigation.goBack()}
-          style={styles.backButton}
-          activeOpacity={0.7}
-        >
-          <ArrowLeft size={22} color={colors.textPrimary} />
-        </TouchableOpacity>
-        <Text style={styles.headerTitle}>Receive</Text>
-        <View style={styles.headerSpacer} />
-      </View>
+      <ScreenHeader title="Receive" />
 
       <ScrollView
         style={styles.scrollView}
@@ -149,7 +134,7 @@ export const ReceiveScreen: React.FC = () => {
                 qrMode === 'mobile' && styles.modeTextActive,
               ]}
             >
-              Mobile
+              Hivesigner link
             </Text>
           </TouchableOpacity>
 
@@ -171,15 +156,15 @@ export const ReceiveScreen: React.FC = () => {
                 qrMode === 'signet' && styles.modeTextActive,
               ]}
             >
-              Signet
+              hive:// link
             </Text>
           </TouchableOpacity>
         </View>
 
         <Text style={styles.modeDescription}>
           {qrMode === 'mobile'
-            ? 'Scan with any Hivesigner-compatible wallet'
-            : 'Scan with Signet desktop extension'}
+            ? 'Opens Hivesigner in a browser; works with any wallet that supports it'
+            : 'Scan with Signet or any wallet that understands hive:// payment links'}
         </Text>
 
         {/* QR Code */}
@@ -294,32 +279,6 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: colors.bg,
-  },
-  header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingHorizontal: 16,
-    paddingVertical: 14,
-    paddingTop: Platform.OS === 'ios' ? 56 : 14,
-    borderBottomWidth: 1,
-    borderBottomColor: colors.border,
-  },
-  backButton: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    backgroundColor: colors.surfaceElevated,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  headerTitle: {
-    fontSize: 17,
-    fontWeight: '700',
-    color: colors.textPrimary,
-  },
-  headerSpacer: {
-    width: 36,
   },
   scrollView: {
     flex: 1,

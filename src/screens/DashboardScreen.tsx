@@ -8,7 +8,6 @@ import {
   RefreshControl,
   Dimensions,
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
 import { useNavigation } from '@react-navigation/native';
 import {
   Send,
@@ -308,7 +307,7 @@ export const DashboardScreen: React.FC = () => {
   }, [activeAccountName, activeAccountData, getDecryptedKey, addToast, refreshAccountData]);
 
   return (
-    <SafeAreaView style={styles.container}>
+    <View style={styles.container}>
       <Header />
 
       <ScrollView
@@ -355,7 +354,7 @@ export const DashboardScreen: React.FC = () => {
         <PriceChart currentPrice={hivePriceUsd} />
 
       </ScrollView>
-    </SafeAreaView>
+    </View>
   );
 };
 
@@ -423,7 +422,7 @@ const styles = StyleSheet.create({
     fontSize: 34,
     fontWeight: '800',
     color: colors.textPrimary,
-    letterSpacing: -1,
+    fontVariant: ['tabular-nums'],
     marginBottom: 12,
   },
   balanceRow: {

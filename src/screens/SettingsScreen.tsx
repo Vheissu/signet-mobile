@@ -7,11 +7,9 @@ import {
   TouchableOpacity,
   Switch,
   Alert,
-  Platform,
 } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import {
-  ChevronLeft,
   User,
   Shield,
   Globe,
@@ -28,6 +26,7 @@ import {
   LogOut,
 } from 'lucide-react-native';
 import { colors } from '../theme';
+import { ScreenHeader } from '../components/layout/ScreenHeader';
 import { useStore } from '../store';
 import { Card } from '../components/ui/Card';
 import { Button } from '../components/ui/Button';
@@ -36,6 +35,8 @@ import { Modal } from '../components/ui/Modal';
 import { Badge } from '../components/ui/Badge';
 import { Avatar } from '../components/ui/Avatar';
 import { DEFAULT_SETTINGS } from '../core/types';
+import { testAllNodes, type RPCNode } from '../core/hive/rpc';
+import { BACKGROUND_GRACE_MS } from '../hooks/useAutoLock';
 import {
   isBiometricAvailable,
   isBiometricEnrolled,
@@ -69,6 +70,8 @@ const SettingsScreen: React.FC = () => {
 
   // Modal states
   const [showRpcModal, setShowRpcModal] = useState(false);
+  const [nodeHealth, setNodeHealth] = useState<Record<string, RPCNode>>({});
+  const [testingNodes, setTestingNodes] = useState(false);
   const [showAccountsModal, setShowAccountsModal] = useState(false);
   const [showClearDataModal, setShowClearDataModal] = useState(false);
 
@@ -155,6 +158,29 @@ const SettingsScreen: React.FC = () => {
       addToast({ type: 'success', message: 'RPC node updated' });
     },
     [updateSettings, addToast],
+  );
+
+  const handleTestNodes = useCallback(async () => {
+    setTestingNodes(true);
+    try {
+      const results = await testAllNodes(rpcNodes);
+      const map: Record<string, RPCNode> = {};
+      for (const r of results) map[r.url] = r;
+      setNodeHealth(map);
+    } finally {
+      setTestingNodes(false);
+    }
+  }, [rpcNodes]);
+
+  const handleRemoveRpc = useCallback(
+    async (node: string) => {
+      if (rpcNodes.length <= 1) return;
+      const remaining = rpcNodes.filter((n) => n !== node);
+      const nextActive = activeRpc === node ? remaining[0] : activeRpc;
+      setActiveRpc(nextActive);
+      await updateSettings({ rpcNodes: remaining, activeRpc: nextActive });
+    },
+    [rpcNodes, activeRpc, updateSettings],
   );
 
   const handleAddCustomRpc = useCallback(async () => {
@@ -296,18 +322,7 @@ const SettingsScreen: React.FC = () => {
 
   return (
     <View style={styles.container}>
-      {/* Header */}
-      <View style={styles.header}>
-        <TouchableOpacity
-          onPress={() => navigation.goBack()}
-          style={styles.backButton}
-          hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-        >
-          <ChevronLeft size={24} color={colors.textPrimary} />
-        </TouchableOpacity>
-        <Text style={styles.headerTitle}>Settings</Text>
-        <View style={styles.headerRight} />
-      </View>
+      <ScreenHeader title="Settings" />
 
       <ScrollView
         style={styles.flex}
@@ -365,6 +380,10 @@ const SettingsScreen: React.FC = () => {
                 </TouchableOpacity>
               </View>
             </View>
+            <Text style={styles.settingNote}>
+              Locks after this long without a touch, or {Math.round(BACKGROUND_GRACE_MS / 1000)} seconds
+              after Signet leaves the foreground.
+            </Text>
             <View style={styles.divider} />
             <SettingRow
               icon={<Lock size={18} color={colors.textSecondary} />}
@@ -479,21 +498,50 @@ const SettingsScreen: React.FC = () => {
             >
               <View style={styles.rpcNodeLeft}>
                 <Server size={16} color={node === activeRpc ? colors.hive : colors.textTertiary} />
-                <Text
-                  style={[
-                    styles.rpcNodeText,
-                    node === activeRpc && styles.rpcNodeTextActive,
-                  ]}
-                  numberOfLines={1}
-                >
-                  {node}
-                </Text>
+                <View style={styles.rpcNodeTextCol}>
+                  <Text
+                    style={[
+                      styles.rpcNodeText,
+                      node === activeRpc && styles.rpcNodeTextActive,
+                    ]}
+                    numberOfLines={1}
+                  >
+                    {node.replace('https://', '')}
+                  </Text>
+                  {nodeHealth[node] ? (
+                    <Text
+                      style={[
+                        styles.rpcLatency,
+                        { color: nodeHealth[node].isHealthy ? colors.success : colors.error },
+                      ]}
+                    >
+                      {nodeHealth[node].isHealthy ? `${nodeHealth[node].latency} ms` : 'unreachable'}
+                    </Text>
+                  ) : null}
+                </View>
               </View>
-              {node === activeRpc && (
+              {node === activeRpc ? (
                 <Check size={16} color={colors.hive} />
-              )}
+              ) : rpcNodes.length > 1 ? (
+                <TouchableOpacity
+                  onPress={() => handleRemoveRpc(node)}
+                  hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                  accessibilityLabel={`Remove ${node}`}
+                >
+                  <Trash2 size={14} color={colors.textTertiary} />
+                </TouchableOpacity>
+              ) : null}
             </TouchableOpacity>
           ))}
+
+          <Button
+            variant="ghost"
+            size="sm"
+            onPress={handleTestNodes}
+            loading={testingNodes}
+          >
+            Test all nodes
+          </Button>
 
           <View style={styles.modalDivider} />
 
@@ -641,32 +689,6 @@ const styles = StyleSheet.create({
   flex: {
     flex: 1,
   },
-  header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingHorizontal: 16,
-    paddingTop: Platform.OS === 'ios' ? 56 : 16,
-    paddingBottom: 12,
-    borderBottomWidth: 1,
-    borderBottomColor: colors.border,
-  },
-  backButton: {
-    width: 36,
-    height: 36,
-    borderRadius: 12,
-    backgroundColor: colors.surfaceElevated,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  headerTitle: {
-    fontSize: 18,
-    fontWeight: '700',
-    color: colors.textPrimary,
-  },
-  headerRight: {
-    width: 36,
-  },
   scrollContent: {
     padding: 16,
     paddingBottom: 40,
@@ -720,6 +742,14 @@ const styles = StyleSheet.create({
     height: 1,
     backgroundColor: colors.border,
     marginHorizontal: 16,
+  },
+  settingNote: {
+    fontSize: 12,
+    lineHeight: 17,
+    color: colors.textTertiary,
+    paddingHorizontal: 16,
+    paddingBottom: 12,
+    marginTop: -4,
   },
   autoLockInput: {
     flexDirection: 'row',
@@ -798,10 +828,17 @@ const styles = StyleSheet.create({
     gap: 10,
     flex: 1,
   },
+  rpcNodeTextCol: {
+    flex: 1,
+  },
   rpcNodeText: {
     fontSize: 13,
     color: colors.textSecondary,
-    flex: 1,
+  },
+  rpcLatency: {
+    fontSize: 11,
+    marginTop: 1,
+    fontVariant: ['tabular-nums'],
   },
   rpcNodeTextActive: {
     color: colors.textPrimary,

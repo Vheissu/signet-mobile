@@ -3,12 +3,10 @@ import {
   View,
   Text,
   StyleSheet,
-  StatusBar,
   Dimensions,
-  Platform,
 } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
-import Svg, { Polygon, Defs, RadialGradient, Stop } from 'react-native-svg';
+import Svg, { Polygon } from 'react-native-svg';
 import { Shield, Zap, Globe } from 'lucide-react-native';
 import { colors } from '../theme';
 import { Button } from '../components/ui/Button';
@@ -18,18 +16,18 @@ const { width: SCREEN_WIDTH } = Dimensions.get('window');
 const FEATURES = [
   {
     icon: Shield,
-    title: 'Military-Grade Security',
-    description: 'AES-256 encryption with keys stored only on your device',
-  },
-  {
-    icon: Zap,
-    title: 'Lightning Fast',
-    description: '3-second block times with zero transaction fees',
+    title: 'Keys stay on this phone',
+    description: 'Encrypted with your password, unlocked with Face ID or fingerprint',
   },
   {
     icon: Globe,
-    title: 'Full dApp Support',
-    description: 'Sign transactions for any Hive dApp seamlessly',
+    title: 'Use Hive apps inside Signet',
+    description: 'PeakD, Ecency, Splinterlands and other Keychain-compatible sites sign through you',
+  },
+  {
+    icon: Zap,
+    title: 'The whole wallet',
+    description: 'Send, power up, savings, delegation, governance and Hive Engine tokens',
   },
 ];
 
@@ -47,20 +45,8 @@ const SignetLogo: React.FC = () => {
 
   return (
     <View style={styles.logoContainer}>
-      <View style={styles.logoGlow} />
       <Svg width={size} height={size} viewBox={`0 0 ${size} ${size}`}>
-        <Defs>
-          <RadialGradient id="hexGrad" cx="50%" cy="50%" r="50%">
-            <Stop offset="0%" stopColor={colors.hiveLight} />
-            <Stop offset="100%" stopColor={colors.hiveDark} />
-          </RadialGradient>
-        </Defs>
-        <Polygon
-          points={points}
-          fill="url(#hexGrad)"
-          stroke={colors.hiveLight}
-          strokeWidth={1.5}
-        />
+        <Polygon points={points} fill={colors.hive} />
       </Svg>
       <Text style={styles.logoLetter}>S</Text>
     </View>
@@ -88,16 +74,14 @@ export const WelcomeScreen: React.FC = () => {
 
   return (
     <View style={styles.container}>
-      <StatusBar barStyle="light-content" backgroundColor={colors.bg} />
-
       <View style={styles.content}>
         {/* Logo Section */}
         <View style={styles.heroSection}>
           <SignetLogo />
           <Text style={styles.heading}>Signet</Text>
           <Text style={styles.subheading}>
-            The secure wallet for the Hive blockchain. Manage your keys, tokens,
-            and dApp interactions with confidence.
+            A Hive wallet that keeps your keys on your phone and signs for the
+            apps you use.
           </Text>
         </View>
 
@@ -159,24 +143,6 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     marginBottom: 24,
   },
-  logoGlow: {
-    position: 'absolute',
-    width: 140,
-    height: 140,
-    borderRadius: 70,
-    backgroundColor: 'rgba(227,19,55,0.15)',
-    ...Platform.select({
-      ios: {
-        shadowColor: colors.hive,
-        shadowOffset: { width: 0, height: 0 },
-        shadowOpacity: 0.6,
-        shadowRadius: 40,
-      },
-      android: {
-        elevation: 20,
-      },
-    }),
-  },
   logoLetter: {
     position: 'absolute',
     fontSize: 38,
@@ -189,7 +155,6 @@ const styles = StyleSheet.create({
     fontWeight: '800',
     color: colors.textPrimary,
     marginBottom: 12,
-    letterSpacing: -0.5,
   },
   subheading: {
     fontSize: 15,

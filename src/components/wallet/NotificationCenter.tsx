@@ -6,7 +6,6 @@ import {
   StyleSheet,
   Modal,
   ScrollView,
-  Platform,
   Pressable,
 } from 'react-native';
 import {
@@ -326,18 +325,9 @@ const styles = StyleSheet.create({
     borderTopRightRadius: 24,
     maxHeight: '80%',
     minHeight: '50%',
-    paddingBottom: Platform.OS === 'ios' ? 34 : 16,
-    ...Platform.select({
-      ios: {
-        shadowColor: '#000',
-        shadowOffset: { width: 0, height: -4 },
-        shadowOpacity: 0.3,
-        shadowRadius: 12,
-      },
-      android: {
-        elevation: 16,
-      },
-    }),
+    paddingBottom: 24,
+    borderTopWidth: 1,
+    borderTopColor: colors.border,
   },
   panelHeader: {
     flexDirection: 'row',

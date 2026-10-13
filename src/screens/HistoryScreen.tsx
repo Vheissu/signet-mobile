@@ -8,7 +8,6 @@ import {
   ScrollView,
   RefreshControl,
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
 import {
   Clock,
   RefreshCw,
@@ -504,7 +503,7 @@ export const HistoryScreen: React.FC = () => {
   );
 
   return (
-    <SafeAreaView style={styles.container}>
+    <View style={styles.container}>
       <Header />
 
       {/* History header bar */}
@@ -556,7 +555,7 @@ export const HistoryScreen: React.FC = () => {
           }
         />
       )}
-    </SafeAreaView>
+    </View>
   );
 };
 

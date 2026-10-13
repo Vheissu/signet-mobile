@@ -46,7 +46,10 @@ jest.mock('../src/core/hive/client', () => ({
     rc_manabar: { current_mana: 5000 },
     max_rc: 10000,
   })),
+  setNodes: jest.fn(),
 }));
+
+import { setNodes } from '../src/core/hive/client';
 
 jest.mock('../src/core/constants', () => ({
   coingeckoFetch: jest.fn(async () => ({
@@ -89,9 +92,6 @@ function resetStore() {
       autoLockMinutes: 10,
       rpcNodes: ['https://api.hive.blog'],
       activeRpc: 'https://api.hive.blog',
-      theme: 'dark' as const,
-      currency: 'USD',
-      showTestnets: false,
       biometricEnabled: false,
       coingeckoApiKey: '',
     },
@@ -294,7 +294,15 @@ describe('Store updateSettings', () => {
     await useStore.getState().updateSettings({ autoLockMinutes: 5 });
     expect(useStore.getState().settings.autoLockMinutes).toBe(5);
     // Other settings unchanged
-    expect(useStore.getState().settings.theme).toBe('dark');
+    expect(useStore.getState().settings.activeRpc).toBe('https://api.hive.blog');
+  });
+
+  it('points the Hive client at the chosen node', async () => {
+    await useStore.getState().updateSettings({
+      rpcNodes: ['https://api.hive.blog', 'https://api.deathwing.me'],
+      activeRpc: 'https://api.deathwing.me',
+    });
+    expect(setNodes).toHaveBeenCalledWith(['https://api.deathwing.me', 'https://api.hive.blog']);
   });
 
   it('persists settings to storage', async () => {

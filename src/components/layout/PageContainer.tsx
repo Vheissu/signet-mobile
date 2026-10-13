@@ -6,12 +6,11 @@ import {
   TouchableOpacity,
   StyleSheet,
   Animated,
-  Platform,
-  StatusBar,
   ViewStyle,
 } from 'react-native';
 import { ArrowLeft } from 'lucide-react-native';
 import { useNavigation } from '@react-navigation/native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { colors } from '../../theme';
 
 interface PageContainerProps {
@@ -36,6 +35,7 @@ export const PageContainer: React.FC<PageContainerProps> = ({
   noPadding = false,
 }) => {
   const navigation = useNavigation();
+  const insets = useSafeAreaInsets();
   const fadeAnim = useRef(new Animated.Value(0)).current;
 
   useEffect(() => {
@@ -69,10 +69,8 @@ export const PageContainer: React.FC<PageContainerProps> = ({
 
   return (
     <Animated.View style={[styles.container, { opacity: fadeAnim }, style]}>
-      <StatusBar barStyle="light-content" backgroundColor={colors.bg} />
-
       {showHeader && (
-        <View style={styles.header}>
+        <View style={[styles.header, { paddingTop: insets.top + 8 }]}>
           <View style={styles.headerLeft}>
             {showBack && (
               <TouchableOpacity
@@ -110,8 +108,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-between',
     paddingHorizontal: 16,
-    paddingVertical: 12,
-    paddingTop: Platform.OS === 'ios' ? 56 : 12,
+    paddingBottom: 12,
     backgroundColor: colors.bg,
     borderBottomWidth: 1,
     borderBottomColor: colors.border,

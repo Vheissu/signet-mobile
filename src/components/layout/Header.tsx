@@ -7,7 +7,6 @@ import {
   Modal,
   Pressable,
   Animated,
-  Platform,
   Image,
 } from 'react-native';
 import {
@@ -20,6 +19,7 @@ import {
   Check,
 } from 'lucide-react-native';
 import { useNavigation } from '@react-navigation/native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { colors } from '../../theme';
 import { useStore } from '../../store';
 import { logger } from '../../core/logger';
@@ -62,6 +62,7 @@ const AccountAvatar: React.FC<{ username: string; size?: number }> = ({
 
 export const Header: React.FC = () => {
   const navigation = useNavigation<any>();
+  const insets = useSafeAreaInsets();
   const accounts = useStore((s) => s.accounts);
   const activeAccountName = useStore((s) => s.activeAccountName);
   const setActiveAccount = useStore((s) => s.setActiveAccount);
@@ -118,7 +119,7 @@ export const Header: React.FC = () => {
 
   return (
     <>
-      <View style={styles.container}>
+      <View style={[styles.container, { paddingTop: insets.top + 8 }]}>
         <TouchableOpacity
           style={styles.accountSelector}
           onPress={() => setDropdownOpen(true)}
@@ -176,7 +177,7 @@ export const Header: React.FC = () => {
         onRequestClose={() => setDropdownOpen(false)}
       >
         <Pressable
-          style={styles.overlay}
+          style={[styles.overlay, { paddingTop: insets.top + 54 }]}
           onPress={() => setDropdownOpen(false)}
         >
           <View style={styles.dropdown}>
@@ -234,9 +235,8 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-between',
     paddingHorizontal: 16,
-    paddingVertical: 12,
-    paddingTop: Platform.OS === 'ios' ? 56 : 12,
-    backgroundColor: 'rgba(35,24,56,0.8)',
+    paddingBottom: 10,
+    backgroundColor: colors.bg,
     borderBottomWidth: 1,
     borderBottomColor: colors.border,
   },
@@ -281,7 +281,6 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: 'rgba(0,0,0,0.5)',
     justifyContent: 'flex-start',
-    paddingTop: Platform.OS === 'ios' ? 110 : 60,
     paddingHorizontal: 16,
   },
   dropdown: {
@@ -290,17 +289,6 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: colors.border,
     padding: 8,
-    ...Platform.select({
-      ios: {
-        shadowColor: '#000',
-        shadowOffset: { width: 0, height: 8 },
-        shadowOpacity: 0.3,
-        shadowRadius: 16,
-      },
-      android: {
-        elevation: 12,
-      },
-    }),
   },
   dropdownTitle: {
     color: colors.textTertiary,
