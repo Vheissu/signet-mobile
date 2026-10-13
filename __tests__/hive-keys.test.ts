@@ -8,6 +8,11 @@ import {
   getPublicFromPrivate,
   identifyKeyRole,
   deriveKeysFromPassword,
+  signBuffer,
+  verifyBufferSignature,
+  encodeMemo,
+  decodeMemo,
+  isEncryptedMemo,
 } from '../src/core/crypto/hive-keys';
 
 // Known test vectors - these are NOT real keys, just valid format keys for testing
@@ -194,5 +199,53 @@ describe('identifyKeyRole', () => {
 
   it('returns null for invalid key', () => {
     expect(identifyKeyRole('invalid', {})).toBeNull();
+  });
+});
+
+describe('signBuffer', () => {
+  const keys = deriveKeysFromPassword(TEST_USERNAME, TEST_PASSWORD);
+  const posting = keys.find((k) => k.role === 'posting')!;
+
+  it('produces a Keychain-compatible 130 character hex signature', () => {
+    const sig = signBuffer('hello hive', posting.private);
+    expect(sig).toMatch(/^[0-9a-f]{130}$/);
+  });
+
+  it('verifies against the matching public key', () => {
+    const sig = signBuffer('login:alice:123', posting.private);
+    expect(verifyBufferSignature('login:alice:123', sig, posting.public)).toBe(true);
+  });
+
+  it('rejects a different message or key', () => {
+    const sig = signBuffer('message', posting.private);
+    const active = keys.find((k) => k.role === 'active')!;
+    expect(verifyBufferSignature('other', sig, posting.public)).toBe(false);
+    expect(verifyBufferSignature('message', sig, active.public)).toBe(false);
+    expect(verifyBufferSignature('message', 'nothex', posting.public)).toBe(false);
+  });
+
+  it('signs long messages (digest, not raw bytes)', () => {
+    const sig = signBuffer('x'.repeat(5000), posting.private);
+    expect(verifyBufferSignature('x'.repeat(5000), sig, posting.public)).toBe(true);
+  });
+});
+
+describe('memo encryption', () => {
+  const sender = deriveKeysFromPassword('alice', 'P5alicepassword').find((k) => k.role === 'memo')!;
+  const recipient = deriveKeysFromPassword('bob', 'P5bobpassword').find((k) => k.role === 'memo')!;
+
+  it('round-trips a message between sender and recipient', () => {
+    const encoded = encodeMemo('secret payment note', sender.private, recipient.public);
+    expect(encoded.startsWith('#')).toBe(true);
+    expect(isEncryptedMemo(encoded)).toBe(true);
+    expect(decodeMemo(encoded, recipient.private)).toBe('secret payment note');
+    expect(decodeMemo(encoded, sender.private)).toBe('secret payment note');
+  });
+
+  it('leaves plain memos alone', () => {
+    expect(decodeMemo('plain memo', recipient.private)).toBe('plain memo');
+    expect(isEncryptedMemo('plain')).toBe(false);
+    expect(isEncryptedMemo('#')).toBe(false);
+    expect(isEncryptedMemo('')).toBe(false);
   });
 });

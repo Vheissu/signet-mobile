@@ -24,7 +24,7 @@ import {
   Shield,
 } from 'lucide-react-native';
 import * as DocumentPicker from 'expo-document-picker';
-import * as FileSystem from 'expo-file-system';
+import * as FileSystem from 'expo-file-system/legacy';
 import { colors } from '../theme';
 import { useStore } from '../store';
 import { Card } from '../components/ui/Card';

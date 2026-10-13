@@ -16,6 +16,7 @@ import {
 } from '../core/storage/secure-storage';
 import { getAccount, getDynamicGlobalProperties, getResourceCredits } from '../core/hive/client';
 import { logger } from '../core/logger';
+import { removeBiometric } from '../core/biometric';
 import { toast as toastUI } from '../components/ui/Toast';
 import { coingeckoFetch, setCoingeckoApiKey } from '../core/constants';
 import type {
@@ -179,46 +180,15 @@ export const useStore = create<AppState>((set, get) => ({
         return;
       }
 
-      // Wallet exists -- check for a cached session password
-      const sessionPassword = await getSecureItem(STORAGE_KEYS.SESSION);
-      if (sessionPassword) {
-        try {
-          const accounts = await decryptFromString<StoredAccount[]>(
-            encryptedAccounts,
-            sessionPassword,
-          );
-          const activeAccountName = await getSecureItem(
-            STORAGE_KEYS.ACTIVE_ACCOUNT,
-          );
-
-          set({
-            isInitialized: true,
-            isLocked: false,
-            password: sessionPassword,
-            accounts,
-            activeAccountName: activeAccountName || (accounts[0]?.username ?? null),
-            currentPage: 'dashboard',
-          });
-
-          // Fire-and-forget data refresh
-          const { refreshAccountData, refreshPrices } = get();
-          refreshAccountData().catch((e) => logger.warn('[store] background task failed:', e));
-          refreshPrices().catch((e) => logger.warn('[store] background task failed:', e));
-        } catch {
-          // Session password invalid / expired
-          set({
-            isInitialized: true,
-            isLocked: true,
-            currentPage: 'login',
-          });
-        }
-      } else {
-        set({
-          isInitialized: true,
-          isLocked: true,
-          currentPage: 'login',
-        });
-      }
+      // A wallet exists. The password is never persisted, so every cold
+      // start goes through the unlock screen (biometrics make that quick).
+      // Older builds stored it in the keychain; clear any leftover copy.
+      removeSecureItem(STORAGE_KEYS.SESSION).catch(() => {});
+      set({
+        isInitialized: true,
+        isLocked: true,
+        currentPage: 'login',
+      });
     } catch (error) {
       logger.error('[store] initialize error:', error);
       set({ isInitialized: false, isLocked: true, currentPage: 'welcome' });
@@ -236,7 +206,6 @@ export const useStore = create<AppState>((set, get) => ({
       const accounts: StoredAccount[] = [];
       const encrypted = await encryptToString(accounts, password);
       await setSecureItem(STORAGE_KEYS.ACCOUNTS, encrypted);
-      await setSecureItem(STORAGE_KEYS.SESSION, password);
 
       set({
         isInitialized: true,
@@ -269,8 +238,6 @@ export const useStore = create<AppState>((set, get) => ({
         encryptedAccounts,
         password,
       );
-
-      await setSecureItem(STORAGE_KEYS.SESSION, password);
 
       const activeAccountName = await getSecureItem(
         STORAGE_KEYS.ACTIVE_ACCOUNT,
@@ -330,10 +297,8 @@ export const useStore = create<AppState>((set, get) => ({
   // -----------------------------------------------------------------
   resetWallet: async () => {
     try {
-      await removeSecureItem(STORAGE_KEYS.SESSION);
-      await removeSecureItem(STORAGE_KEYS.ACCOUNTS);
-      await removeSecureItem(STORAGE_KEYS.ACTIVE_ACCOUNT);
-      await removeSecureItem(STORAGE_KEYS.SETTINGS);
+      await secureStorage.clearAll();
+      await removeBiometric();
     } catch (e) {
       logger.warn('[store] resetWallet cleanup error:', e);
     }
@@ -346,10 +311,12 @@ export const useStore = create<AppState>((set, get) => ({
       activeAccountData: null,
       resources: null,
       globalProperties: null,
+      settings: { ...defaultSettings },
       currentPage: 'welcome',
       isLoading: false,
       loadingMessage: '',
     });
+    setCoingeckoApiKey(null);
   },
 
   // -----------------------------------------------------------------

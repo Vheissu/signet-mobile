@@ -36,7 +36,6 @@ import { Modal } from '../components/ui/Modal';
 import { Badge } from '../components/ui/Badge';
 import { Avatar } from '../components/ui/Avatar';
 import { DEFAULT_SETTINGS } from '../core/types';
-import { secureStorage } from '../core/storage/secure-storage';
 import {
   isBiometricAvailable,
   isBiometricEnrolled,
@@ -53,6 +52,7 @@ const SettingsScreen: React.FC = () => {
   const activeAccountName = useStore((s) => s.activeAccountName);
   const password = useStore((s) => s.password);
   const lockWallet = useStore((s) => s.lock);
+  const resetWallet = useStore((s) => s.resetWallet);
   const updateSettings = useStore((s) => s.updateSettings);
   const removeAccount = useStore((s) => s.removeAccount);
   const addToast = useStore((s) => s.addToast);
@@ -242,9 +242,7 @@ const SettingsScreen: React.FC = () => {
             setShowClearDataModal(false);
             setConfirmPassword('');
             try {
-              await secureStorage.clearAll();
-              await removeBiometric();
-              lockWallet();
+              await resetWallet();
               addToast({ type: 'info', message: 'All data has been cleared' });
             } catch (e: any) {
               Alert.alert('Error', e.message || 'Failed to clear data');
@@ -253,7 +251,7 @@ const SettingsScreen: React.FC = () => {
         },
       ],
     );
-  }, [lockWallet, addToast, password, confirmPassword]);
+  }, [resetWallet, addToast, password, confirmPassword]);
 
   const handleLockWallet = useCallback(() => {
     lockWallet();

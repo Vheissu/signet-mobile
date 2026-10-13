@@ -165,13 +165,12 @@ describe('Store createWallet', () => {
     );
   });
 
-  it('stores session password in SecureStore', async () => {
+  it('never persists the wallet password', async () => {
     await useStore.getState().createWallet('testpassword123');
 
-    expect(SecureStore.setItemAsync).toHaveBeenCalledWith(
-      'signet_session_password',
-      'testpassword123',
-    );
+    expect(SecureStore.setItemAsync).not.toHaveBeenCalled();
+    const asyncWrites = (AsyncStorage.setItem as jest.Mock).mock.calls.map((c) => String(c[1]));
+    expect(asyncWrites.some((v) => v.includes('testpassword123'))).toBe(false);
   });
 });
 
@@ -192,6 +191,21 @@ describe('Store lock', () => {
     expect(state.globalProperties).toBeNull();
     expect(state.hivePriceUsd).toBe(0);
     expect(state.hbdPriceUsd).toBe(0);
+  });
+
+  it('requires an unlock on every cold start even if an old build left a session password', async () => {
+    (AsyncStorage.getItem as jest.Mock).mockImplementation(async (key: string) => {
+      if (key === 'signet_encrypted_accounts') return JSON.stringify([]);
+      return null;
+    });
+    (SecureStore.getItemAsync as jest.Mock).mockResolvedValue('leftover-password');
+
+    await useStore.getState().initialize();
+    const state = useStore.getState();
+
+    expect(state.isInitialized).toBe(true);
+    expect(state.isLocked).toBe(true);
+    expect(state.password).toBeNull();
   });
 
   it('deletes session password from SecureStore', async () => {

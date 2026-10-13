@@ -1,9 +1,20 @@
 /**
  * useAutoLock Hook
  *
- * Security features:
- * - Locks the wallet after `autoLockMinutes` of inactivity
- * - Locks immediately when the app goes to background
+ * Locks the wallet:
+ * - after `autoLockMinutes` without a touch, and
+ * - when the app has been out of the foreground for longer than a short
+ *   grace period.
+ *
+ * The grace period matters on a phone: system prompts (Face ID, camera and
+ * file pickers, the share sheet) briefly take the app out of the `active`
+ * state. Locking on every one of those would throw the user back to the
+ * unlock screen in the middle of enabling biometrics or importing a CSV.
+ * `inactive` is ignored entirely; only a real `background` transition
+ * starts the clock.
+ *
+ * Timers do not run while the app is suspended, so the elapsed time is
+ * re-checked on every return to the foreground.
  *
  * Mount once in App.tsx. Call `resetActivity()` on any user touch.
  */
@@ -12,6 +23,11 @@ import { useEffect, useRef, useCallback } from 'react';
 import { AppState, AppStateStatus } from 'react-native';
 import { useStore } from '../store';
 
+/** How long the app may stay in the background before it locks. */
+export const BACKGROUND_GRACE_MS = 15_000;
+
+const CHECK_INTERVAL_MS = 5_000;
+
 export function useAutoLock() {
   const isLocked = useStore((s) => s.isLocked);
   const isInitialized = useStore((s) => s.isInitialized);
@@ -19,44 +35,54 @@ export function useAutoLock() {
   const lock = useStore((s) => s.lock);
 
   const lastActivityRef = useRef(Date.now());
-  const appStateRef = useRef<AppStateStatus>(AppState.currentState);
+  const backgroundedAtRef = useRef<number | null>(null);
 
   const resetActivity = useCallback(() => {
     lastActivityRef.current = Date.now();
   }, []);
 
-  // Inactivity timer - check every 15 seconds
+  const shouldLockForInactivity = useCallback(() => {
+    if (autoLockMinutes <= 0) return false;
+    return Date.now() - lastActivityRef.current >= autoLockMinutes * 60 * 1000;
+  }, [autoLockMinutes]);
+
+  // Inactivity timer while in the foreground
   useEffect(() => {
     if (isLocked || !isInitialized || autoLockMinutes <= 0) return;
 
     const interval = setInterval(() => {
-      const elapsed = Date.now() - lastActivityRef.current;
-      const limitMs = autoLockMinutes * 60 * 1000;
-
-      if (elapsed >= limitMs) {
-        lock();
-      }
-    }, 15_000);
+      if (shouldLockForInactivity()) lock();
+    }, CHECK_INTERVAL_MS);
 
     return () => clearInterval(interval);
-  }, [isLocked, isInitialized, autoLockMinutes, lock]);
+  }, [isLocked, isInitialized, autoLockMinutes, lock, shouldLockForInactivity]);
 
-  // Lock when app goes to background
+  // Background handling
   useEffect(() => {
     if (isLocked || !isInitialized) return;
 
-    const subscription = AppState.addEventListener('change', (nextState) => {
-      if (
-        appStateRef.current === 'active' &&
-        (nextState === 'background' || nextState === 'inactive')
-      ) {
-        lock();
+    const subscription = AppState.addEventListener('change', (nextState: AppStateStatus) => {
+      if (nextState === 'background') {
+        if (backgroundedAtRef.current === null) {
+          backgroundedAtRef.current = Date.now();
+        }
+        return;
       }
-      appStateRef.current = nextState;
+
+      if (nextState === 'active') {
+        const away = backgroundedAtRef.current;
+        backgroundedAtRef.current = null;
+        if ((away !== null && Date.now() - away >= BACKGROUND_GRACE_MS) || shouldLockForInactivity()) {
+          lock();
+        } else {
+          resetActivity();
+        }
+      }
+      // `inactive` is deliberately ignored (system prompts, control centre).
     });
 
     return () => subscription.remove();
-  }, [isLocked, isInitialized, lock]);
+  }, [isLocked, isInitialized, lock, resetActivity, shouldLockForInactivity]);
 
   return { resetActivity };
 }
