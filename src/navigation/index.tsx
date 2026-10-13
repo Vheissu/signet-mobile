@@ -18,6 +18,7 @@ import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import {
   LayoutDashboard,
+  Compass,
   Coins,
   Clock,
   Landmark,
@@ -32,6 +33,7 @@ import { LoginScreen } from '../screens/LoginScreen';
 import { DashboardScreen } from '../screens/DashboardScreen';
 import TokensScreen from '../screens/TokensScreen';
 import { HistoryScreen } from '../screens/HistoryScreen';
+import { BrowserScreen } from '../screens/BrowserScreen';
 import GovernanceScreen from '../screens/GovernanceScreen';
 import { SendScreen } from '../screens/SendScreen';
 import { ReceiveScreen } from '../screens/ReceiveScreen';
@@ -73,6 +75,7 @@ export type RootStackParamList = {
 
 export type MainTabParamList = {
   Dashboard: undefined;
+  Browser: undefined;
   Tokens: undefined;
   History: undefined;
   Governance: undefined;
@@ -129,6 +132,16 @@ function MainTabs() {
           tabBarLabel: 'Wallet',
           tabBarIcon: ({ color, size }) => (
             <LayoutDashboard size={size - 4} color={color} />
+          ),
+        }}
+      />
+      <Tab.Screen
+        name="Browser"
+        component={BrowserScreen}
+        options={{
+          tabBarLabel: 'Apps',
+          tabBarIcon: ({ color, size }) => (
+            <Compass size={size - 4} color={color} />
           ),
         }}
       />
